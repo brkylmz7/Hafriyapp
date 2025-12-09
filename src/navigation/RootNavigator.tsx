@@ -1,14 +1,11 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { useAppSelector } from '../hooks';
 import AuthNavigator from './AuthNavigator';
-import AppNavigator from './AppNavigator';
+// import AppNavigator from './AppNavigator';
+import AppNavigator from './AppDrawer';
 
 export default function RootNavigator() {
-  const isLoggedIn = useAppSelector((state) => state.auth.isLoggedIn);
+  const isLoggedIn = useAppSelector(state => state.auth.isLoggedIn);
 
-  return (
-    <NavigationContainer>
-      {isLoggedIn ? <AppNavigator /> : <AuthNavigator />}
-    </NavigationContainer>
-  );
+  return <NavigationContainer>{isLoggedIn ? <AppNavigator /> : <AuthNavigator />}</NavigationContainer>;
 }

@@ -66,10 +66,10 @@ const LoginScreen = () => {
 
   const onContinue = async () => {
     dispatch(setPhone(phone));
+    console.log('phonenumber', phone);
+    // const res = await sendOtp(phone);
 
-    const res = await sendOtp(phone);
-
-    if (res.success) {
+    if (true) {
       navigation.navigate('Otp');
     } else {
       Alert.alert('Numara bulunamadı!');
@@ -87,24 +87,25 @@ const LoginScreen = () => {
       <View style={{ flex: 1, backgroundColor: '#F3F2F3', width: '100%', justifyContent: 'center', alignItems: 'center' }}>
         <Image style={{ width: '100%', height: '100%', marginBottom: '-1%' }} source={require('../../../assets/login/Vector.png')} />
         <Text style={{ position: 'absolute', marginBottom: '20%', fontWeight: '600', fontSize: 20 }}>GİRİŞ YAPIN</Text>
+        {loginRole != 'driver' ? <></> : <Text style={styles.phoneText}>Kayıtlı olduğunuz telefon numarasına kod gönderin</Text>}
         {loginRole != 'driver' ? (
           <TouchableOpacity style={styles.buttonRegister} onPress={() => selectRole('supplier')} activeOpacity={0.7}>
             <Text style={styles.text}>FİRMA ve ARAÇ SAHİBİ</Text>
           </TouchableOpacity>
         ) : (
-          <View style={{ width: '100%', height: '100%', backgroundColor: '#FFD500', justifyContent: 'center', alignItems: 'center' }}>
-            <Text style={styles.phoneText}>Kayıtlı olduğunuz telefon numarasına kod gönderin</Text>
-            <TextInput
-              style={styles.input}
-              keyboardType="number-pad"
-              value={phone}
-              placeholder="05XX XXX XX XX"
-              placeholderTextColor="#AAA"
-              onChangeText={formatPhone}
-              maxLength={14} // 0500 000 00 00
-              returnKeyType="done"
-            />
-          </View>
+          // <View style={{ width: '100%', backgroundColor: '#FFD500', paddingVertical: 20, justifyContent: 'center', alignItems: 'center' }}>
+
+          <TextInput
+            style={styles.input}
+            keyboardType="number-pad"
+            value={phone}
+            placeholder="05XX XXX XX XX"
+            placeholderTextColor="#AAA"
+            onChangeText={formatPhone}
+            maxLength={14} // 0500 000 00 00
+            returnKeyType="done"
+          />
+          // </View>
         )}
       </View>
       <View style={{ flex: 1, backgroundColor: '#FFD500', width: '100%', justifyContent: 'center', alignItems: 'center' }}>
@@ -114,11 +115,9 @@ const LoginScreen = () => {
             <Text style={styles.text}>ŞOFÖR</Text>
           </TouchableOpacity>
         ) : (
-          <View style={{ width: '100%', height: '50%', justifyContent: 'center', alignItems: 'center' }}>
-            <TouchableOpacity style={styles.buttonPhoneCheck} onPress={() => navigation.navigate('Otp')} activeOpacity={0.7}>
-              <Text style={styles.text}>KOD GÖNDER</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity style={styles.buttonLogin} onPress={() => onContinue()} activeOpacity={0.7}>
+            <Text style={styles.text}>KOD GÖNDER</Text>
+          </TouchableOpacity>
         )}
       </View>
     </View>
@@ -171,10 +170,10 @@ const styles = StyleSheet.create({
   },
   phoneText: {
     color: 'black',
-    fontSize: 12,
-    fontWeight: '600', // Tasarımdaki gibi yarı-bold
-    marginBottom: '5%',
-    // position:'absolute',marginBottom:'20%'
+    fontSize: 14,
+    fontWeight: '700', // Tasarımdaki gibi yarı-bold
+    position: 'absolute',
+    marginBottom: '1%',
     alignSelf: 'center',
   },
   input: {
@@ -188,7 +187,8 @@ const styles = StyleSheet.create({
     fontSize: 17,
     color: '#000',
     fontWeight: '600',
-    marginBottom: '35%',
+    marginBottom: '-25%',
+    position: 'absolute',
   },
   buttonPhoneCheck: {
     backgroundColor: '#000', // Siyah arka plan
