@@ -1,12 +1,27 @@
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import HomeScreen from '../screens/HomeScreen';
+import React from 'react';
+import { createDrawerNavigator } from '@react-navigation/drawer';
 
-const Tab = createBottomTabNavigator();
+import BottomTabs from './BottomTabs';
+import ProfileScreen from '../screens/ProfileScreen';
+import MyAds from '../screens/MyAds';
+import CustomHeader from '../components/CustomHeader';
+import CustomDrawerContent from './CustomDrawerContent';
+
+const Drawer = createDrawerNavigator();
 
 export default function AppNavigator() {
   return (
-    <Tab.Navigator>
-      <Tab.Screen name="Home" component={HomeScreen} />
-    </Tab.Navigator>
+    <Drawer.Navigator
+      drawerContent={props => <CustomDrawerContent {...props} />}
+      screenOptions={{
+        header: () => <CustomHeader title="HAFRİYAPP" />,
+      }}>
+      {/* 🔑 Tabs burada olmalı */}
+      <Drawer.Screen name="HomeTabs" component={BottomTabs} options={{ title: 'Anasayfa' }} />
+
+      <Drawer.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profilim' }} />
+
+      <Drawer.Screen name="MyAds" component={MyAds} options={{ title: 'İlanlarım' }} />
+    </Drawer.Navigator>
   );
 }

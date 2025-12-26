@@ -36,10 +36,6 @@ const OtpScreen = () => {
     console.log('otp', otp);
     if (otp == '5555') {
       dispatch(loginSuccess({ token: 'asdasd' }));
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'HomeTabs' }], // Drawer içindeki ana tab
-      });
     }
     // const res = await verifyOtp(phone, otp);
     // if (res.success && res.token) {
