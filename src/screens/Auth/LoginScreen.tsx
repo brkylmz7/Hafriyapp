@@ -87,8 +87,8 @@ const LoginScreen = () => {
       <View style={{ flex: 1, backgroundColor: '#F3F2F3', width: '100%', justifyContent: 'center', alignItems: 'center' }}>
         <Image style={{ width: '100%', height: '100%', marginBottom: '-1%' }} source={require('../../../assets/login/Vector.png')} />
         <Text style={{ position: 'absolute', marginBottom: '20%', fontWeight: '600', fontSize: 20 }}>GİRİŞ YAPIN</Text>
-        {loginRole != 'driver' ? <></> : <Text style={styles.phoneText}>Kayıtlı olduğunuz telefon numarasına kod gönderin</Text>}
-        {loginRole != 'driver' ? (
+        {loginRole != 'supplier' ? <></> : <Text style={styles.phoneText}>Kayıtlı olduğunuz telefon numarasına kod gönderin</Text>}
+        {loginRole != 'supplier' ? (
           <TouchableOpacity style={styles.buttonRegister} onPress={() => selectRole('supplier')} activeOpacity={0.7}>
             <Text style={styles.text}>FİRMA ve ARAÇ SAHİBİ</Text>
           </TouchableOpacity>
@@ -110,7 +110,7 @@ const LoginScreen = () => {
       </View>
       <View style={{ flex: 1, backgroundColor: '#FFD500', width: '100%', justifyContent: 'center', alignItems: 'center' }}>
         {/* <Text style={{ position: 'absolute', marginBottom: '65%', fontWeight: '500', fontSize: 18 }}>Kullanıcınız varsa giriş yapın</Text> */}
-        {loginRole != 'driver' ? (
+        {loginRole != 'driver' && loginRole != 'supplier' ? (
           <TouchableOpacity style={styles.buttonLogin} onPress={() => selectRole('driver')} activeOpacity={0.7}>
             <Text style={styles.text}>ŞOFÖR</Text>
           </TouchableOpacity>

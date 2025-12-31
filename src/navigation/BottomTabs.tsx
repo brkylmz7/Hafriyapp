@@ -13,6 +13,7 @@ import SupplierHome from '../screens/supplier/SupplierHome';
 import SupplierVehicles from '../screens/supplier/SupplierVehicles';
 import SupplierAllJobs from '../screens/supplier/AllJobs';
 import MyJobs from '../screens/supplier/MyJobs';
+import SupplierStack from './SupplierStack';
 
 const Tab = createBottomTabNavigator();
 
@@ -131,7 +132,7 @@ export default function BottomTabs() {
           {/* SUPPLIER HOME */}
           <Tab.Screen
             name="SupplierHome"
-            component={SupplierHome}
+            component={SupplierStack}
             options={{
               title: 'Anasayfa',
               tabBarIcon: ({ focused }) => (
@@ -149,7 +150,7 @@ export default function BottomTabs() {
                     style={{
                       width: 35,
                       height: 35,
-                      tintColor: focused ? '#FFF' : '#444',
+                      tintColor: focused ? '#4444' : 'black',
                     }}
                   />
                 </View>
@@ -174,11 +175,11 @@ export default function BottomTabs() {
                     alignItems: 'center',
                   }}>
                   <Image
-                    source={require('../../assets/icons/home.png')}
+                    source={require('../../assets/icons/excavator.png')}
                     style={{
                       width: 35,
                       height: 35,
-                      tintColor: focused ? '#FFF' : '#444',
+                      tintColor: focused ? '#444' : 'black',
                     }}
                   />
                 </View>
@@ -203,11 +204,11 @@ export default function BottomTabs() {
                     alignItems: 'center',
                   }}>
                   <Image
-                    source={require('../../assets/icons/home.png')}
+                    source={require('../../assets/icons/drive.png')}
                     style={{
                       width: 35,
                       height: 35,
-                      tintColor: focused ? '#FFF' : '#444',
+                      tintColor: focused ? '#444' : 'black',
                     }}
                   />
                 </View>
@@ -232,11 +233,11 @@ export default function BottomTabs() {
                     alignItems: 'center',
                   }}>
                   <Image
-                    source={require('../../assets/icons/home.png')}
+                    source={require('../../assets/logokarakalem.png')}
                     style={{
-                      width: 35,
-                      height: 35,
-                      tintColor: focused ? '#FFF' : '#444',
+                      width: 45,
+                      height: 45,
+                      tintColor: focused ? '#444' : 'black',
                     }}
                   />
                 </View>
