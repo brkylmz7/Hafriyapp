@@ -4,9 +4,14 @@ import { useSelector } from 'react-redux';
 
 import AppNavigator from './AppNavigator';
 import AuthNavigator from './AuthNavigator';
+import { useAuthBootstrap } from '../hooks/useAuthBootstrap';
+import { RootState } from '../store';
 
 export default function RootNavigator() {
-  const isLoggedIn = useSelector((state: any) => state.auth.isLoggedIn);
+  // 🔐 Keychain → Redux
+  useAuthBootstrap();
+
+  const isLoggedIn = useSelector((state: RootState) => state.auth.isLoggedIn);
 
   return <NavigationContainer>{isLoggedIn ? <AppNavigator /> : <AuthNavigator />}</NavigationContainer>;
 }

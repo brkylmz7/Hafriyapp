@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, Alert, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import { View, Text, Alert, TouchableOpacity, StyleSheet, Image, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import { CodeField, Cursor, useBlurOnFulfill, useClearByFocusCell } from 'react-native-confirmation-code-field';
-import { verifyOtp, sendOtp } from '../../api/authApi';
 import { useAppSelector, useAppDispatch } from '../../hooks';
-import { loginSuccess } from '../../store/slices/authSlice';
+import { loginSuccess, setRole, setUser } from '../../store/slices/authSlice';
 import { useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
+import { login, verifySms } from '../../services/authService';
+import { getUserById } from '../../services/userService';
+import { saveAuth } from '../../utils/secureStore';
 
-const CELL_COUNT = 4;
+const CELL_COUNT = 6;
 
 const OtpScreen = () => {
   const [otp, setOtp] = useState('');
@@ -31,25 +33,74 @@ const OtpScreen = () => {
 
     return () => clearInterval(interval);
   }, [timer]);
+  useEffect(() => {
+    setTimeout(() => {
+      ref.current?.focus();
+    }, 500);
+  }, []);
 
   const onVerify = async () => {
-    console.log('otp', otp);
-    if (otp == '5555') {
-      dispatch(loginSuccess({ token: 'asdasd' }));
+    try {
+      const res = await verifySms(phone, otp);
+
+      console.log('VERIFY RESPONSE', res);
+
+      if (!res?.isSuccess) {
+        Alert.alert('Hata', 'OTP yanlış');
+        return;
+      }
+
+      const { token, userId, userType } = res.data;
+
+      // 🔁 userType → role mapping
+      const role = userType === 1 ? 'driver' : 'supplier';
+      // 🔐 1️⃣ ÖNCE TOKEN KEYCHAIN’E
+      await saveAuth({
+        token,
+        phone,
+        role,
+      });
+      // 🔐 Redux
+      dispatch(loginSuccess({ token }));
+      dispatch(setRole(role));
+      // 👤 USER BİLGİLERİNİ ÇEK
+      const userRes = await getUserById(userId, token);
+      console.log('userId', userId);
+      console.log('userRes', userRes);
+      if (userRes?.isSuccess) {
+        dispatch(setUser(userRes.data));
+      }
+
+      // 🧭 Yönlendirme (opsiyonel, RootNavigator zaten yakalayacak)
+      // navigation.reset({
+      //   index: 0,
+      //   routes: [{ name: role === 'driver' ? 'DriverStack' : 'SupplierStack' }],
+      // });
+    } catch (e) {
+      console.log('VERIFY ERROR', e);
+      Alert.alert('Hata', 'Doğrulama sırasında hata oluştu');
     }
-    // const res = await verifyOtp(phone, otp);
-    // if (res.success && res.token) {
-    //   dispatch(loginSuccess({ token: res.token }));
-    //   navigation.reset({ index: 0, routes: [{ name: 'AppTabs' }] });
-    // } else {
-    //   Alert.alert('OTP yanlış!');
-    // }
   };
 
   const onResend = async () => {
-    setTimer(120);
-    const res = await sendOtp(phone);
-    if (res.success) Alert.alert('Kod gönderildi');
+    try {
+      setTimer(120);
+
+      const res = await login(phone);
+
+      console.log('RESEND OTP RESPONSE', res);
+
+      if (!res?.isSuccess) {
+        Alert.alert('Hata', 'Kod tekrar gönderilemedi');
+        return;
+      }
+
+      // 🔴 TEST AMAÇLI – OTP ALERT
+      Alert.alert('Yeni OTP Kodu (TEST)', `Gelen Kod: ${res.data.verificationCode}`);
+    } catch (e) {
+      console.log('RESEND OTP ERROR', e);
+      Alert.alert('Hata', 'Bir hata oluştu');
+    }
   };
 
   const formatTime = (sec: number) => {
@@ -66,41 +117,45 @@ const OtpScreen = () => {
         <Image style={{ width: 25, height: 25 }} source={require('../../../assets/login/left-arrow.png')} />
       </TouchableOpacity>
       {/* 📌 İçerik sabit View içinde → artık reset yok */}
-      <View style={styles.container}>
-        <Image style={{ marginBottom: '0%', width: 350, height: 350 }} source={require('../../../assets/logoText.png')} />
-        <Text style={styles.title}>OTP Kodunu Giriniz</Text>
-        <Text style={styles.subtitle}>{phone}</Text>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+          <View style={styles.container}>
+            <Image style={{ marginBottom: '0%', width: 350, height: 350 }} source={require('../../../assets/logoText.png')} />
+            <Text style={styles.title}>OTP Kodunu Giriniz</Text>
+            <Text style={styles.subtitle}>{phone}</Text>
 
-        <CodeField
-          ref={ref}
-          {...codeFieldProps}
-          value={otp}
-          onChangeText={setOtp}
-          cellCount={CELL_COUNT}
-          keyboardType="number-pad"
-          textContentType="oneTimeCode"
-          rootStyle={styles.codeFieldRoot}
-          renderCell={({ index, symbol, isFocused }) => (
-            <Text key={index} style={[styles.cell, isFocused && styles.focusCell]} onLayout={getCellOnLayoutHandler(index)}>
-              {symbol || (isFocused ? <Cursor /> : null)}
-            </Text>
-          )}
-        />
+            <CodeField
+              ref={ref}
+              {...codeFieldProps}
+              value={otp}
+              onChangeText={setOtp}
+              cellCount={CELL_COUNT}
+              keyboardType="number-pad"
+              textContentType="oneTimeCode"
+              rootStyle={styles.codeFieldRoot}
+              renderCell={({ index, symbol, isFocused }) => (
+                <Text key={index} style={[styles.cell, isFocused && styles.focusCell]} onLayout={getCellOnLayoutHandler(index)}>
+                  {symbol || (isFocused ? <Cursor /> : null)}
+                </Text>
+              )}
+            />
 
-        <TouchableOpacity style={[styles.verifyButton, otp.length === 4 && styles.verifyButtonActive]} disabled={otp.length !== 4} onPress={onVerify}>
-          <Text style={styles.verifyText}>Doğrula</Text>
-        </TouchableOpacity>
-
-        <View style={{ marginTop: 30 }}>
-          {timer > 0 ? (
-            <Text style={styles.timer}>Kodu tekrar göndermek için: {formatTime(timer)}</Text>
-          ) : (
-            <TouchableOpacity onPress={onResend}>
-              <Text style={styles.resend}>Tekrar Gönder</Text>
+            <TouchableOpacity style={[styles.verifyButton, otp.length === 6 && styles.verifyButtonActive]} disabled={otp.length !== 6} onPress={onVerify}>
+              <Text style={styles.verifyText}>Doğrula</Text>
             </TouchableOpacity>
-          )}
-        </View>
-      </View>
+
+            <View style={{ marginTop: 30 }}>
+              {timer > 0 ? (
+                <Text style={styles.timer}>Kodu tekrar göndermek için: {formatTime(timer)}</Text>
+              ) : (
+                <TouchableOpacity onPress={onResend}>
+                  <Text style={styles.resend}>Tekrar Gönder</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
     </>
   );
 };
@@ -114,8 +169,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
     paddingHorizontal: 24,
+    paddingTop: 80,
   },
   title: {
     fontSize: 22,
@@ -131,11 +186,11 @@ const styles = StyleSheet.create({
     marginTop: 20,
     width: '75%',
     alignSelf: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
   },
   cell: {
-    width: 55,
-    height: 55,
+    width: 50,
+    height: 50,
     lineHeight: 50,
     fontSize: 24,
     borderWidth: 2,
@@ -148,9 +203,10 @@ const styles = StyleSheet.create({
       width: 2,
       height: 2,
     },
-    shadowOpacity: 0.96,
-    shadowRadius: 2.68,
-    elevation: 8,
+    shadowOpacity: 0.36,
+    shadowRadius: 2,
+    elevation: 4,
+    marginHorizontal: '1%',
   },
   focusCell: {
     borderColor: '#2a2a2aff',

@@ -237,7 +237,7 @@ export default function SupplierVehicles() {
             {/* HEADER */}
             <View style={styles.receiptHeader}>
               <View style={styles.logoCircle}>
-                <Image source={require('../../../assets/logokarakalem.png')} style={styles.logoImage} />
+                <Image source={require('../../../assets/logoNew.png')} style={styles.logoImage} />
               </View>
 
               <View style={{ flex: 1, alignItems: 'center' }}>

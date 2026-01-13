@@ -16,7 +16,7 @@ export default function CustomHeader({ title = '', subtitle = 'HARFÄ°YAT VE BAHÃ
       <View style={styles.container}>
         {/* SOL TARAF: LOGO + YAZILAR */}
         <View style={styles.leftBox}>
-          <Image source={require('../../assets/logokarakalem.png')} style={styles.logo} resizeMode="contain" />
+          <Image source={require('../../assets/logoNew.png')} style={styles.logo} resizeMode="contain" />
 
           <View>
             <Text style={styles.title}>{title}</Text>

@@ -14,6 +14,7 @@ import SupplierVehicles from '../screens/supplier/SupplierVehicles';
 import SupplierAllJobs from '../screens/supplier/AllJobs';
 import MyJobs from '../screens/supplier/MyJobs';
 import SupplierStack from './SupplierStack';
+import DriverStack from './DriverStack';
 
 const Tab = createBottomTabNavigator();
 
@@ -43,7 +44,7 @@ export default function BottomTabs() {
           {/* DRIVER HOME */}
           <Tab.Screen
             name="DriverHome"
-            component={DriverHome}
+            component={DriverStack}
             options={{
               title: 'Anasayfa',
               tabBarIcon: ({ focused }) => (

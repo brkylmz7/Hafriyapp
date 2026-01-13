@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, Alert, StyleSheet, TouchableOpacity, Image, TextInput } from 'react-native';
+import { View, Text, Alert, StyleSheet, TouchableOpacity, Image, TextInput, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import { useAppDispatch } from '../../hooks';
 import { setPhone } from '../../store/slices/authSlice';
-import { sendOtp } from '../../api/authApi';
 import { setRole } from '../../store/slices/authSlice';
 import { useNavigation } from '@react-navigation/native';
 import { useAppSelector } from '../../hooks';
+import { login } from '../../services/authService';
 
 const LoginScreen = () => {
   const [phone, setPhoneState] = useState('');
@@ -65,62 +65,78 @@ const LoginScreen = () => {
   };
 
   const onContinue = async () => {
-    dispatch(setPhone(phone));
-    console.log('phonenumber', phone);
-    // const res = await sendOtp(phone);
+    try {
+      dispatch(setPhone(phone));
+      console.log('phonenumber', phone);
 
-    if (true) {
+      const res = await login(phone);
+
+      console.log('LOGIN RESPONSE', res);
+
+      if (!res?.isSuccess) {
+        Alert.alert('Hata', 'Kod gönderilemedi');
+        return;
+      }
+
+      // 🔴 TEST AMAÇLI OTP GÖSTER
+      Alert.alert('OTP Kodu (TEST)', `Gelen Kod: ${res.data.verificationCode}`);
+
       navigation.navigate('Otp');
-    } else {
-      Alert.alert('Numara bulunamadı!');
+    } catch (e) {
+      console.log('LOGIN ERROR', e);
+      Alert.alert('Hata', 'Bir hata oluştu');
     }
   };
 
   return (
-    <View style={{ flex: 4, justifyContent: 'center', alignItems: 'center', width: '100%', height: '100%', backgroundColor: '#F3F2F3' }}>
-      <TouchableOpacity style={{ position: 'absolute', left: '2%', top: '10%' }} onPress={() => navigation.goBack()}>
-        <Image style={{ width: 25, height: 25 }} source={require('../../../assets/login/left-arrow.png')} />
-      </TouchableOpacity>
-      <View style={{ flex: 2, width: '100%', justifyContent: 'center', alignItems: 'center' }}>
-        <Image style={{ width: '80%', height: '80%', marginTop: '20%' }} source={require('../../../assets/login/loginKamyon.png')} />
-      </View>
-      <View style={{ flex: 1, backgroundColor: '#F3F2F3', width: '100%', justifyContent: 'center', alignItems: 'center' }}>
-        <Image style={{ width: '100%', height: '100%', marginBottom: '-1%' }} source={require('../../../assets/login/Vector.png')} />
-        <Text style={{ position: 'absolute', marginBottom: '20%', fontWeight: '600', fontSize: 20 }}>GİRİŞ YAPIN</Text>
-        {loginRole != 'supplier' ? <></> : <Text style={styles.phoneText}>Kayıtlı olduğunuz telefon numarasına kod gönderin</Text>}
-        {loginRole != 'supplier' ? (
-          <TouchableOpacity style={styles.buttonRegister} onPress={() => selectRole('supplier')} activeOpacity={0.7}>
-            <Text style={styles.text}>FİRMA ve ARAÇ SAHİBİ</Text>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? -200 : 0}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <View style={{ flex: 4, justifyContent: 'center', alignItems: 'center', width: '100%', height: '100%', backgroundColor: '#F3F2F3' }}>
+          <TouchableOpacity style={{ position: 'absolute', left: '2%', top: '10%' }} onPress={() => navigation.goBack()}>
+            <Image style={{ width: 25, height: 25 }} source={require('../../../assets/login/left-arrow.png')} />
           </TouchableOpacity>
-        ) : (
-          // <View style={{ width: '100%', backgroundColor: '#FFD500', paddingVertical: 20, justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ flex: 2, width: '100%', justifyContent: 'center', alignItems: 'center' }}>
+            <Image style={{ width: '80%', height: '80%', marginTop: '20%' }} source={require('../../../assets/login/loginKamyon.png')} />
+          </View>
+          <View style={{ flex: 1, backgroundColor: '#F3F2F3', width: '100%', justifyContent: 'center', alignItems: 'center' }}>
+            <Image style={{ width: '100%', height: '100%', marginBottom: '-1%' }} source={require('../../../assets/login/Vector.png')} />
+            <Text style={{ position: 'absolute', marginBottom: '20%', fontWeight: '600', fontSize: 20 }}>GİRİŞ YAPIN</Text>
+            {loginRole != 'supplier' && loginRole != 'driver' ? <></> : <Text style={styles.phoneText}>Kayıtlı olduğunuz telefon numarasına kod gönderin</Text>}
+            {loginRole != 'supplier' && loginRole != 'driver' ? (
+              <TouchableOpacity style={styles.buttonRegister} onPress={() => selectRole('supplier')} activeOpacity={0.7}>
+                <Text style={styles.text}>FİRMA ve ARAÇ SAHİBİ</Text>
+              </TouchableOpacity>
+            ) : (
+              // <View style={{ width: '100%', backgroundColor: '#FFD500', paddingVertical: 20, justifyContent: 'center', alignItems: 'center' }}>
 
-          <TextInput
-            style={styles.input}
-            keyboardType="number-pad"
-            value={phone}
-            placeholder="05XX XXX XX XX"
-            placeholderTextColor="#AAA"
-            onChangeText={formatPhone}
-            maxLength={14} // 0500 000 00 00
-            returnKeyType="done"
-          />
-          // </View>
-        )}
-      </View>
-      <View style={{ flex: 1, backgroundColor: '#FFD500', width: '100%', justifyContent: 'center', alignItems: 'center' }}>
-        {/* <Text style={{ position: 'absolute', marginBottom: '65%', fontWeight: '500', fontSize: 18 }}>Kullanıcınız varsa giriş yapın</Text> */}
-        {loginRole != 'driver' && loginRole != 'supplier' ? (
-          <TouchableOpacity style={styles.buttonLogin} onPress={() => selectRole('driver')} activeOpacity={0.7}>
-            <Text style={styles.text}>ŞOFÖR</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity style={styles.buttonLogin} onPress={() => onContinue()} activeOpacity={0.7}>
-            <Text style={styles.text}>KOD GÖNDER</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-    </View>
+              <TextInput
+                style={styles.input}
+                keyboardType="number-pad"
+                value={phone}
+                placeholder="05XX XXX XX XX"
+                placeholderTextColor="#AAA"
+                onChangeText={formatPhone}
+                maxLength={14} // 0500 000 00 00
+                returnKeyType="done"
+              />
+              // </View>
+            )}
+          </View>
+          <View style={{ flex: 1, backgroundColor: '#FFD500', width: '100%', justifyContent: 'center', alignItems: 'center' }}>
+            {/* <Text style={{ position: 'absolute', marginBottom: '65%', fontWeight: '500', fontSize: 18 }}>Kullanıcınız varsa giriş yapın</Text> */}
+            {loginRole != 'driver' && loginRole != 'supplier' ? (
+              <TouchableOpacity style={styles.buttonLogin} onPress={() => selectRole('driver')} activeOpacity={0.7}>
+                <Text style={styles.text}>ŞOFÖR</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={styles.buttonLogin} onPress={() => onContinue()} activeOpacity={0.7}>
+                <Text style={styles.text}>KOD GÖNDER</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 };
 
