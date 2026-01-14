@@ -24,7 +24,7 @@ export default function CustomDrawerContent(props: any) {
       {/* 🟡 HEADER */}
       <View style={styles.header}>
         <Image source={require('../../assets/logoNew.png')} style={styles.logo} />
-        <View>
+        <View style={{marginLeft:'-2%'}}>
           <Text style={styles.title}>HAFRİYAPP</Text>
           <Text style={styles.subtitle}>HARFİYAT VE BAHÇE TOPRAĞI TAŞIMA UYGULAMASI</Text>
         </View>
@@ -50,8 +50,8 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: '#FFD500',
     paddingTop: 60,
-    paddingBottom: 20,
-    paddingHorizontal: 12,
+    paddingBottom: 15,
+    paddingHorizontal: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,

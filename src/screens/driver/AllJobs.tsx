@@ -1,8 +1,12 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, Image, TouchableOpacity, Platform } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, FlatList, TextInput, Image, TouchableOpacity, Platform, Alert, ActionSheetIOS } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CITIES } from '../../constants/cities';
+import { useAppSelector } from '../../hooks';
+import { getMarketJobs } from '../../services/jobSiteService';
+import { mapJobFromApi } from '../../utils/jobMapper';
 
 const YELLOW = '#FFD500';
 const LIGHT_YELLOW = '#FFF2B3';
@@ -62,16 +66,72 @@ const AllJobs = () => {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const bottomPadding = tabBarHeight + insets.bottom;
-
+  const [selectedCity, setSelectedCity] = useState<number>(340);
+  const [cityOpen, setCityOpen] = useState(false);
+  const [jobs, setJobs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const token = useAppSelector(state => state.auth.token);
   /** 🔍 Firma + Şantiye Araması */
   const filteredJobs = useMemo(() => {
-    if (!search.trim()) return jobs;
+    const q = search.trim().toLowerCase();
+  
+    if (!q) return jobs;
+  
+    return jobs.filter(
+      item =>
+        item.company?.toLowerCase().includes(q) ||
+        item.site?.toLowerCase().includes(q),
+    );
+  }, [search, jobs]); // ✅
+  
+  useEffect(() => {
+    fetchJobs();
+  }, [selectedCity]);
 
-    const q = search.toLowerCase();
-
-    return jobs.filter(item => item.company.toLowerCase().includes(q) || item.site.toLowerCase().includes(q));
-  }, [search]);
-
+  const openCityPicker = () => {
+    const options = ['İptal', ...CITIES.map(c => c.label)];
+  
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options,
+          cancelButtonIndex: 0,
+        },
+        buttonIndex => {
+          if (buttonIndex === 0) return;
+  
+          const city = CITIES[buttonIndex - 1];
+          setSelectedCity(city.value);
+        },
+      );
+    } else {
+      Alert.alert(
+        'İl Seç',
+        undefined,
+        CITIES.map(city => ({
+          text: city.label,
+          onPress: () => setSelectedCity(city.value),
+        })),
+        { cancelable: true },
+      );
+    }
+  };
+  const fetchJobs = async () => {
+    if (!token) return;
+  
+    setLoading(true);
+    try {
+      const response = await getMarketJobs(token, selectedCity);
+      const mapped = response.map(mapJobFromApi);
+      console.log('response',response)
+      console.log('mapped',mapped)
+      setJobs(mapped);
+    } catch (e) {
+      console.log('Market jobs error', e);
+    } finally {
+      setLoading(false);
+    }
+  };
   const renderItem = ({ item }: any) => (
     <View style={styles.card}>
       {/* HEADER */}
@@ -127,8 +187,17 @@ const AllJobs = () => {
         data={filteredJobs}
         keyExtractor={item => item.id}
         renderItem={renderItem}
+        refreshing={loading}
+        onRefresh={fetchJobs}
         showsVerticalScrollIndicator={false}
         // 🔥 iOS otomatik inset kapat
+        ListEmptyComponent={
+          !loading ? (
+            <Text style={styles.emptyText}>
+              Bu il için aktif iş bulunamadı
+            </Text>
+          ) : null
+        }
         contentInsetAdjustmentBehavior="never"
         automaticallyAdjustContentInsets={false}
         contentContainerStyle={{
@@ -136,10 +205,58 @@ const AllJobs = () => {
           paddingBottom: bottomPadding,
         }}
         ListHeaderComponent={
-          <View style={styles.searchBox}>
-            <TextInput placeholder="Firma veya şantiye ara" placeholderTextColor="#999" value={search} onChangeText={setSearch} style={styles.searchInput} />
+          <View style={styles.searchRow}>
+            {/* SEARCH */}
+            <TextInput
+              placeholder="Firma veya şantiye ara"
+              placeholderTextColor="#999"
+              value={search}
+              onChangeText={setSearch}
+              style={styles.searchInput}
+            />
+        
+            {/* CITY DROPDOWN */}
+            <View>
+            <TouchableOpacity
+  style={styles.citySelect}
+  onPress={openCityPicker}
+  activeOpacity={0.8}
+>
+  <Text style={styles.cityText}>
+    {selectedCity
+      ? CITIES.find(c => c.value === selectedCity)?.label
+      : 'İl'}
+  </Text>
+  <Image
+    source={require('../../../assets/icons/down-arrow.png')}
+    style={{ width: 14, height: 14 }}
+  />
+</TouchableOpacity>
+        
+              {cityOpen && (
+                <View style={styles.cityDropdown}>
+                  <FlatList
+                    data={CITIES}
+                    keyExtractor={item => item.value.toString()}
+                    style={{ maxHeight: 260 }}
+                    renderItem={({ item }) => (
+                      <TouchableOpacity
+                        style={styles.cityItem}
+                        onPress={() => {
+                          setSelectedCity(item.value);
+                          setCityOpen(false);
+                        }}
+                      >
+                        <Text style={styles.cityItemText}>{item.label}</Text>
+                      </TouchableOpacity>
+                    )}
+                  />
+                </View>
+              )}
+            </View>
           </View>
         }
+        
       />
     </SafeAreaView>
   );
@@ -163,12 +280,16 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 16,
     height: 48,
+    width:'60%',
     fontSize: 14,
-
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
     // extra depth
     shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
     elevation: 2,
   },
 
@@ -179,12 +300,11 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     borderRadius: 22,
     padding: 16,
-
     // 🔥 GÜÇLÜ SHADOW
     shadowColor: '#000',
     shadowOpacity: 0.15,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 6,
+    shadowOffset: { width: 1, height: 3 },
     elevation: 8,
   },
 
@@ -285,4 +405,60 @@ const styles = StyleSheet.create({
   listWrapper: {
     flex: 1, // 🔥 ekranın geri kalanını kaplar
   },
+  searchRow: {
+    flexDirection:'row',
+    justifyContent:'space-between',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  
+  citySelect: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    height: 48,
+    width:'60%',
+    shadowOffset: { width: 1, height: 3 },
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  
+  cityText: {
+    fontSize: 13,
+    fontWeight:'500',
+    color: DARK,
+  },
+  
+  cityDropdown: {
+    position: 'absolute',
+    top: 52,
+    right: 0,
+    width: 160,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    zIndex: 100,
+    paddingVertical: 6,
+  
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  
+  cityItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  
+  cityItemText: {
+    fontSize: 14,
+    color: DARK,
+  },
+  
 });
