@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import { useAppSelector } from '../hooks';
+import { createJobSite } from '../services/jobSiteNewService';
 
 type OfferType = 'DOKUM' | 'AL_GOTUR';
 type PaymentType = 'NAKIT' | 'YAKIT';
 
 export default function NewJobModal({ onClose }: { onClose: () => void }) {
   /* ================= STATE ================= */
-
+  const token = useAppSelector(state => state.auth.token);
+  const companyId = useAppSelector(state => state.auth.user?.id);
   const [siteName, setSiteName] = useState('');
   const [city, setCity] = useState('');
   const [location, setLocation] = useState('');
@@ -24,34 +27,92 @@ export default function NewJobModal({ onClose }: { onClose: () => void }) {
 
   /* ================= ACTION ================= */
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (!siteName || !city || !phone) {
+      Alert.alert('Zorunlu alanları doldurun');
+      return;
+    }
+  
+    const offer1PaymentMap = mapPaymentToAmounts(offer1Payment);
+    const offer2PaymentMap = mapPaymentToAmounts(offer2Payment);
+  
     const payload = {
-      siteName,
-      city,
-      location,
-      phone,
-      material,
+      companyId,
+      name: siteName,
+      jobType: offer1Type === 'DOKUM' ? 0 : 1,
+      provinceCode: Number(city), // ileride dropdown
+      districtName: location,
+      locationUrl: '',
       description,
-      offers: [
-        {
-          offerNo: 1,
-          type: offer1Type,
-          payment: offer1Payment,
-        },
-        {
-          offerNo: 2,
-          type: offer2Type,
-          payment: offer2Payment,
-        },
-      ],
+      contactPhone: phone,
+      fuelStock: 0,
+  
+      offer1Name: mapOfferTypeToName(offer1Type),
+      offer1Cash: offer1PaymentMap.cash,
+      offer1Fuel: offer1PaymentMap.fuel,
+  
+      offer2Name: mapOfferTypeToName(offer2Type),
+      offer2Cash: offer2PaymentMap.cash,
+      offer2Fuel: offer2PaymentMap.fuel,
+  
+      extraOffersJson: buildExtraOffersJson(),
+  
+      hasCash: offer1Payment === 'NAKIT' || offer2Payment === 'NAKIT',
+      hasFuel: offer1Payment === 'YAKIT' || offer2Payment === 'YAKIT',
+  
+      fuelLiters: 0,
+      hasSand: false,
+      sandFuelLiters: 0,
+      cashAmount: 0,
+  
+      loadingStartTime: '',
+      loadingEndTime: '',
     };
-
-    console.log('📦 NEW JOB PAYLOAD:', payload);
-
-    // ileride:
-    // dispatch(createJob(payload))
-    // onClose()
+  
+    console.log('📦 JOBSITE PAYLOAD', payload);
+  
+    try {
+      await createJobSite(token!, payload);
+      onClose();
+    } catch (e) {
+      console.log('❌ createJobSite error', e);
+      Alert.alert('İş oluşturulamadı');
+    }
   };
+
+  const mapOfferTypeToName = (type: OfferType | null) => {
+    if (type === 'DOKUM') return 'Döküm';
+    if (type === 'AL_GOTUR') return 'Al Götür';
+    return '';
+  };
+  const mapPaymentToAmounts = (payment: PaymentType | null) => {
+    return {
+      cash: payment === 'NAKIT' ? 1 : 0,
+      fuel: payment === 'YAKIT' ? 1 : 0,
+    };
+  };
+  const buildExtraOffersJson = () => {
+    const offers: any[] = [];
+  
+    if (offer1Type) {
+      offers.push({
+        offerNo: 1,
+        type: offer1Type,
+        payment: offer1Payment,
+      });
+    }
+  
+    if (offer2Type) {
+      offers.push({
+        offerNo: 2,
+        type: offer2Type,
+        payment: offer2Payment,
+      });
+    }
+  
+    return JSON.stringify(offers);
+  };
+  
 
   return (
     <ScrollView contentContainerStyle={styles.container}>

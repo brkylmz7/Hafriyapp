@@ -54,12 +54,144 @@ const jobs = [
   },
 ];
 
-const ActionItem = ({ icon, label }: { icon: any; label: string }) => (
-  <TouchableOpacity style={styles.actionItem} activeOpacity={0.7}>
+const ActionItem = ({ icon, label, onPress }: { icon: any; label: string; onPress?: () => void;  }) => (
+  <TouchableOpacity style={styles.actionItem} onPress={onPress} activeOpacity={0.7}>
     <Image style={{ width: 20, height: 20 }} source={icon} />
     <Text style={styles.actionLabel}>{label}</Text>
   </TouchableOpacity>
 );
+import { Modal, Linking } from 'react-native';
+
+const JobDetailModal = ({
+  visible,
+  job,
+  onClose,
+}: {
+  visible: boolean;
+  job: any;
+  onClose: () => void;
+}) => {
+  if (!job) return null;
+
+  const phones: string[] = job.phone
+    ? job.phone.split(',').map((p: string) => p.trim())
+    : [];
+
+  const provinceLabel =
+    CITIES.find(c => c.value === job.provinceCode)?.label ?? '-';
+
+  const handleCallPress = (contactPhone?: string) => {
+    if (!contactPhone) return;
+    console.log('object')
+    const list = contactPhone
+      .split(',')
+      .map(p => p.trim())
+      .filter(Boolean);
+
+    if (list.length === 1) {
+      Linking.openURL(`tel:${list[0]}`);
+      return;
+    }
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: 'Numara Seç',
+          options: ['İptal', ...list],
+          cancelButtonIndex: 0,
+        },
+        i => {
+          if (i > 0) Linking.openURL(`tel:${list[i - 1]}`);
+        },
+      );
+    } else {
+      Alert.alert(
+        'Numara Seç',
+        '',
+        list.map(p => ({
+          text: p,
+          onPress: () => Linking.openURL(`tel:${p}`),
+        })),
+      );
+    }
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View style={modalStyles.overlay}>
+        <View style={modalStyles.container}>
+          {/* HEADER */}
+          <View style={modalStyles.header}>
+            <Text style={modalStyles.headerTitle}>İş Detayları</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Text style={modalStyles.close}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* CONTENT */}
+          <View style={modalStyles.content}>
+            <Text style={modalStyles.label}>İŞ ADI</Text>
+            <Text style={modalStyles.value}>{job.site}</Text>
+
+            <Text style={modalStyles.label}>FİRMA</Text>
+            <Text style={modalStyles.value}>{job.company}</Text>
+
+            <View style={modalStyles.row}>
+              <View style={{ flex: 1 }}>
+                <Text style={modalStyles.label}>BÖLGE</Text>
+                <Text style={modalStyles.value}>{provinceLabel}</Text>
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <Text style={modalStyles.label}>SAATLER</Text>
+                <Text style={modalStyles.value}>-- : --</Text>
+              </View>
+            </View>
+
+            {!!job.description && (
+              <>
+                <Text style={modalStyles.label}>AÇIKLAMA</Text>
+                <Text style={modalStyles.value}>{job.description}</Text>
+              </>
+            )}
+
+            {/* TEKLİFLER */}
+            {job.dumps?.length > 0 && (
+              <>
+                <Text style={modalStyles.label}>TEKLİFLER</Text>
+                {job.dumps.map((d: any, i: number) => (
+                  <View key={i} style={modalStyles.offerRow}>
+                    <Text style={modalStyles.offerText}>{d.place}</Text>
+                    <Text style={modalStyles.offerCash}>{d.cash}</Text>
+                  </View>
+                ))}
+              </>
+            )}
+          </View>
+
+          {/* FOOTER */}
+          <View style={modalStyles.footer}>
+            <TouchableOpacity
+              style={modalStyles.closeBtn}
+              onPress={onClose}
+            >
+              <Text style={modalStyles.closeBtnText}>Kapat</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={modalStyles.callBtn}
+              onPress={() => handleCallPress(job.phone)}
+            >
+              <Text style={modalStyles.callText}>📞 Şimdi Ara</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+
 
 const AllJobs = () => {
   const [search, setSearch] = useState('');
@@ -70,11 +202,13 @@ const AllJobs = () => {
   const [cityOpen, setCityOpen] = useState(false);
   const [jobs, setJobs] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [detailVisible, setDetailVisible] = useState(false);
+  const [selectedJob, setSelectedJob] = useState<any>(null);
   const token = useAppSelector(state => state.auth.token);
   /** 🔍 Firma + Şantiye Araması */
   const filteredJobs = useMemo(() => {
     const q = search.trim().toLowerCase();
-  
+    console.log('object,jobs',jobs)
     if (!q) return jobs;
   
     return jobs.filter(
@@ -116,6 +250,48 @@ const AllJobs = () => {
       );
     }
   };
+  const handleCallPress1 = (phone?: string) => {
+    console.log('123123123123')
+  if (!phone) return;
+  const phones = phone
+    .split(',')
+    .map(p => p.trim())
+    .filter(Boolean);
+
+  if (phones.length === 0) return;
+  console.log('phone',phones)
+  // ✅ TEK NUMARA → DİREKT ARA
+  if (phones.length === 1) {
+    Linking.openURL(`tel:${phones[0]}`);
+    return;
+  }
+
+  // ✅ BİRDEN FAZLA NUMARA
+  if (Platform.OS === 'ios') {
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        title: 'Numara Seç',
+        options: ['İptal', ...phones],
+        cancelButtonIndex: 0,
+      },
+      index => {
+        if (index > 0) {
+          Linking.openURL(`tel:${phones[index - 1]}`);
+        }
+      },
+    );
+  } else {
+    Alert.alert(
+      'Numara Seç',
+      '',
+      phones.map(phone => ({
+        text: phone,
+        onPress: () => Linking.openURL(`tel:${phone}`),
+      })),
+      { cancelable: true },
+    );
+  }
+};
   const fetchJobs = async () => {
     if (!token) return;
   
@@ -143,7 +319,10 @@ const AllJobs = () => {
           <Text style={styles.site}>{item.site}</Text>
         </View>
 
-        <TouchableOpacity style={styles.moreBtn}>
+        <TouchableOpacity style={styles.moreBtn} onPress={() => {
+          setSelectedJob(item);
+          setDetailVisible(true);
+        }}>
           <Image style={{ width: 20, height: 20 }} source={require('../../../assets/icons/dots.png')} />
           <Text style={styles.moreText}>Ayrıntılar</Text>
         </TouchableOpacity>
@@ -152,7 +331,11 @@ const AllJobs = () => {
       {/* ACTIONS */}
       <View style={styles.actionRow}>
         <ActionItem icon={require('../../../assets/icons/location.png')} label="Konum" />
-        <ActionItem icon={require('../../../assets/icons/phone-call.png')} label="Arama" />
+        <ActionItem
+          icon={require('../../../assets/icons/phone-call.png')}
+          label="Arama"
+          onPress={() => handleCallPress1(item.phone)}
+        />
         <ActionItem icon={require('../../../assets/icons/send.png')} label="Paylaş" />
         {/* <ActionItem icon={require('../../../assets/icons/dots.png')} label="Ayrıntılar" /> */}
       </View>
@@ -181,7 +364,13 @@ const AllJobs = () => {
   );
 
   return (
+    
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
+      <JobDetailModal
+        visible={detailVisible}
+        job={selectedJob}
+        onClose={() => setDetailVisible(false)}
+      />
       <FlatList
         style={{ flex: 1 }}
         data={filteredJobs}
@@ -462,3 +651,128 @@ const styles = StyleSheet.create({
   },
   
 });
+const modalStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  container: {
+    width: '88%',
+    backgroundColor: '#fff',
+    borderRadius: 22,
+    overflow: 'hidden',
+  },
+
+  header: {
+    backgroundColor: '#FFF7E0',
+    padding: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: DARK,
+  },
+
+  close: {
+    fontSize: 18,
+    color: '#555',
+  },
+
+  content: {
+    padding: 16,
+  },
+
+  label: {
+    fontSize: 11,
+    color: '#999',
+    marginBottom: 4,
+  },
+
+  value: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: DARK,
+    marginBottom: 14,
+  },
+
+  row: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+
+  footer: {
+    flexDirection: 'row',
+    padding: 14,
+    gap: 12,
+  },
+
+  closeBtn: {
+    flex: 1,
+    backgroundColor: '#F2F2F2',
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+
+  closeBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: DARK,
+  },
+
+  callBtn: {
+    flex: 1,
+    backgroundColor: '#FFA500',
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+
+  callText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  offerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  
+  offerText: {
+    fontSize: 13,
+    color: DARK,
+  },
+  
+  offerCash: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#2E7D32',
+  },
+  phoneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F7F7F7',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 10,
+  },
+  phoneText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: DARK,
+  }, 
+  phoneIcon: {
+    fontSize: 18,
+  },
+});
+
