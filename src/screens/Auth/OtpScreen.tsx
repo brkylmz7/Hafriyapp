@@ -53,7 +53,7 @@ const OtpScreen = () => {
       const { token, userId, userType } = res.data;
 
       // 🔁 userType → role mapping
-      const role = userType === 1 ? 'driver' : 'supplier';
+      const role = userType === 0 ? 'driver' : 'supplier';
       // 🔐 1️⃣ ÖNCE TOKEN KEYCHAIN’E
       await saveAuth({
         token,

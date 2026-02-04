@@ -108,7 +108,7 @@ const SelectRoleScreen = () => {
                       try {
                         const payload = {
                           phoneNumber: phone.replace(/\D/g, ''),
-                          userType: registerRole === 'driver' ? 1 : 0,
+                          userType: registerRole === 'driver' ? 0 : 1,
                           firstName: registerRole === 'driver' ? firstName : '',
                           lastName: registerRole === 'driver' ? lastName : '',
                           companyName: registerRole === 'supplier' ? companyName : '',

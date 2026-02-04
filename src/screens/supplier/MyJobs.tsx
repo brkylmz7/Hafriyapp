@@ -1,87 +1,83 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal } from 'react-native';
-import NewJobModal from '../../components/NewJobModal';
+import React, { useEffect, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  Modal,
+  ActivityIndicator,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import axios from 'axios';
+
+import NewJobModal from '../../components/NewJobModal';
+import { useAppSelector } from '../../hooks';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 
 const YELLOW = '#FFD500';
+const API_URL = 'https://api.hafriyapp.com/api';
 
-const jobs = [
-  {
-    id: '1',
-    site: 'GÜNEŞLİ ŞANTİYESİ 1',
-    today: 17,
-    total: 242,
-    paid: 161,
-    unpaid: 81,
-    fuelLeft: '3250 lt',
-    fuelGiven: '5750 lt',
-  },
-  {
-    id: '2',
-    site: 'ESENLER ŞANTİYESİ 2',
-    today: 0,
-    total: 57,
-    paid: 48,
-    unpaid: 9,
-    fuelLeft: '0 lt',
-    fuelGiven: '0 lt',
-  },
-  {
-    id: '3',
-    site: 'ESENLER ŞANTİYESİ 3',
-    today: 0,
-    total: 57,
-    paid: 48,
-    unpaid: 9,
-    fuelLeft: '0 lt',
-    fuelGiven: '0 lt',
-  },
-  {
-    id: '4',
-    site: 'ESENLER ŞANTİYESİ 4',
-    today: 0,
-    total: 57,
-    paid: 48,
-    unpaid: 9,
-    fuelLeft: '0 lt',
-    fuelGiven: '0 lt',
-  },
-  {
-    id: '5',
-    site: 'ESENLER ŞANTİYESİ 5',
-    today: 0,
-    total: 57,
-    paid: 48,
-    unpaid: 9,
-    fuelLeft: '0 lt',
-    fuelGiven: '0 lt',
-  },
-  {
-    id: '6',
-    site: 'ESENLER ŞANTİYESİ 6',
-    today: 0,
-    total: 57,
-    paid: 48,
-    unpaid: 9,
-    fuelLeft: '0 lt',
-    fuelGiven: '0 lt',
-  },
-  {
-    id: '7',
-    site: 'ESENLER ŞANTİYESİ 7',
-    today: 0,
-    total: 57,
-    paid: 48,
-    unpaid: 9,
-    fuelLeft: '0 lt',
-    fuelGiven: '0 lt',
-  },
-];
+type JobUI = {
+  id: string;
+  site: string;
+  today: number;
+  total: number;
+  paid: number;
+  unpaid: number;
+  fuelLeft: string;
+  fuelGiven: string;
+  canEdit: boolean;
+  isActive: boolean;
+};
 
 export default function MyJobs() {
+  const token = useAppSelector(state => state.auth.token);
+  const [jobs, setJobs] = useState<JobUI[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const insets = useSafeAreaInsets();
 
-  const renderItem = ({ item }: any) => (
+  useEffect(() => {
+    if (!token) return;
+
+    const fetchJobs = async () => {
+      try {
+        setLoading(true);
+
+        const res = await axios.get(`${API_URL}/JobSite`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            accept: '*/*',
+          },
+        });
+
+        const mapped: JobUI[] = res.data.map((item: any) => ({
+          id: item.id,
+          site: item.name,
+          today: 0,        // başka servisten gelecek
+          total: 0,
+          paid: 0,
+          unpaid: 0,
+          fuelLeft: `${item.fuelStock ?? 0} lt`,
+          fuelGiven: '0 lt',
+          canEdit: item.canEdit,
+          isActive: item.isActive,
+        }));
+
+        setJobs(mapped);
+      } catch (err) {
+        console.log('JobSite fetch error:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchJobs();
+  }, [token]);
+
+  const renderItem = ({ item }: { item: JobUI }) => (
     <View style={styles.card}>
       <View style={{ flex: 1 }}>
         <Text style={styles.site}>{item.site}</Text>
@@ -100,24 +96,47 @@ export default function MyJobs() {
           <Text style={styles.fuel}>Verilen: {item.fuelGiven}</Text>
         </View>
 
-        <TouchableOpacity style={styles.actionBtn}>
-          <Text>Düzenle</Text>
-        </TouchableOpacity>
+        {item.canEdit && (
+          <TouchableOpacity style={styles.actionBtn}>
+            <Text>Düzenle</Text>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity style={styles.actionBtn}>
-          <Text>İşi Aç</Text>
+          <Text>{item.isActive ? 'İşi Aç' : 'Pasif'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.actionBtn}>
+          <Text>{'İşi Kapat'}</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <ActivityIndicator size="large" color={YELLOW} />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={{ marginTop: '-8%' }}>
-        <Text style={styles.title}>FİRMANIZA AİT İŞLER</Text>
-      </View>
+        <View style={[
+    styles.content,
+    { marginTop: -insets.top + 15 }, // 👈 BOŞLUĞU YOK EDEN SATIR
+  ]}>
+    <Text style={styles.title}>FİRMANIZA AİT İŞLER</Text>
 
-      <FlatList showsVerticalScrollIndicator={false} showsHorizontalScrollIndicator={false} data={jobs} keyExtractor={i => i.id} renderItem={renderItem} contentContainerStyle={{ paddingTop: 10, paddingBottom: 40, flexGrow: 1, padding: '3%' }} />
+    <FlatList
+      data={jobs}
+      keyExtractor={item => item.id}
+      renderItem={renderItem}
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.listContent}
+      style={{marginTop:'5%'}}
+    />
+  </View>
 
       {/* ➕ YENİ İŞ KUR */}
       <TouchableOpacity style={styles.fab} onPress={() => setShowModal(true)}>
@@ -131,36 +150,34 @@ export default function MyJobs() {
     </SafeAreaView>
   );
 }
+
+/* ================= STYLES ================= */
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F6F6F6',
-    // padding: 10,
   },
 
   title: {
     textAlign: 'center',
     fontWeight: '800',
     fontSize: 16,
-    marginBottom: 10,
+    marginTop: 4,
+    marginBottom: 6,
     color: '#111',
   },
 
-  /* 🔹 CARD */
   card: {
     flexDirection: 'row',
     padding: 16,
     borderRadius: 18,
     backgroundColor: '#fff',
     marginBottom: 14,
-
-    // iOS Shadow
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-
-    // Android Shadow
+    shadowOffset: { width: 1, height: 2 },
+    shadowOpacity: 0.28,
+    shadowRadius: 4,
     elevation: 4,
   },
 
@@ -174,11 +191,9 @@ const styles = StyleSheet.create({
   info: {
     fontSize: 12,
     color: '#666',
-    marginBottom: '1%',
-    marginTop: '1%',
+    marginVertical: '1%',
   },
 
-  /* 🔹 RIGHT COLUMN */
   right: {
     alignItems: 'flex-end',
     justifyContent: 'space-between',
@@ -193,14 +208,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     width: 120,
     height: 40,
-    shadowColor: 'rgba(0, 0, 0, 1)',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.24,
-    shadowRadius: 0.27,
-
     elevation: 2,
   },
 
@@ -220,18 +227,9 @@ const styles = StyleSheet.create({
     height: 35,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: 'rgba(0, 0, 0, 1)',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.24,
-    shadowRadius: 0.27,
-
     elevation: 2,
   },
 
-  /* 🔹 FLOATING ACTION BUTTON */
   fab: {
     position: 'absolute',
     bottom: 28,
@@ -241,11 +239,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 14,
     alignItems: 'center',
-
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
     elevation: 6,
   },
 
@@ -261,5 +254,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111',
     marginTop: 2,
+  },
+  content: {
+    flex: 1,
+    paddingTop: 4, // 🔥 kritik değer
+  },
+  listContent: {
+    paddingHorizontal: 12,
+    paddingBottom: 120, // tabbar + FAB
   },
 });

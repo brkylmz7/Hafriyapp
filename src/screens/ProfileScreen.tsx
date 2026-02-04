@@ -5,6 +5,7 @@ import { ScrollView } from 'react-native-gesture-handler';
 
 const ProfileScreen = () => {
   const user = useAppSelector(state => state.auth.user);
+  console.log('user',user)
 
   if (!user) {
     return (
@@ -14,13 +15,13 @@ const ProfileScreen = () => {
     );
   }
 
-  const isDriver = user.userType === 1;
+  const isDriver = user.userType === 0;
 
   /* ---------------- STATES ---------------- */
   const [firstName, setFirstName] = useState(user.firstName);
   const [lastName, setLastName] = useState(user.lastName);
   const [phoneNumber, setPhoneNumber] = useState(user.phoneNumber);
-  const [companyName, setCompanyName] = useState('');
+  const [companyName, setCompanyName] = useState(user.companyName);
 
   const [authName, setAuthName] = useState('');
   const [authPhone, setAuthPhone] = useState('');

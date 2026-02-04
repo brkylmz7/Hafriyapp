@@ -1,16 +1,15 @@
+// services/jobSiteService.ts
 import axios from 'axios';
 
-export const createJobSite = async (token: string, payload: any) => {
-  const res = await axios.post(
-    'https://api.hafriyapp.com/api/JobSite',
-    payload,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
+const API_URL = 'https://api.hafriyapp.com/api';
+
+export const getJobSites = async (token: string) => {
+  const res = await axios.get(`${API_URL}/JobSite`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      accept: '*/*',
     },
-  );
+  });
 
   return res.data;
 };

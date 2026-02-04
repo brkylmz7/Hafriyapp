@@ -1,27 +1,44 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, ScrollView, Image } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  Modal,
+  ScrollView,
+  TextInput,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  TouchableWithoutFeedback,
+  Pressable,
+  Alert
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAppSelector } from '../../hooks';
+import { deleteVehicle, getVehicles, updateVehicle } from '../../services/vehicleService';
 
 const YELLOW = '#FFD500';
 const GRAY = '#F4F4F4';
 const DARK = '#222';
 
 /* ================= DATA ================= */
-
-const summary = {
-  spentFuel: '548097 lt',
-  collectedCash: '548097 ₺',
-  expectedCash: '12034 ₺',
-  todayTrips: 17,
-  monthlyTrips: 242,
-  paidTrips: 161,
-  unpaidTrips: 81,
+type VehicleApi = {
+  id: string;
+  plateNumber: string;
+  canEdit: boolean;
+  canDelete: boolean;
+  createdDate: string;
+};
+type VehicleUI = {
+  id: string;
+  plate: string;
+  canEdit: boolean;
+  canDelete: boolean;
+  createdDate: string;
 };
 
-const vehicles = [
-  { id: '1', plate: '34 NNB 521', fuel: '1350 lt', cash: '189000 ₺' },
-  { id: '2', plate: '34 NNB 497', fuel: '980 lt', cash: '145000 ₺' },
-];
 
 const trips = [
   {
@@ -40,110 +57,215 @@ const trips = [
     price: '2500₺',
     approved: true,
   },
-  {
-    id: '329',
-    date: '06.12.2025',
-    plate: '34 NNB 741',
-    company: 'DEMİR',
-    price: '2500₺',
-    approved: false,
-  },
-  {
-    id: '330',
-    date: '06.12.2025',
-    plate: '34 NNB 741',
-    company: 'DEMİR',
-    price: '2500₺',
-    approved: false,
-  },
-  {
-    id: '331',
-    date: '06.12.2025',
-    plate: '34 NNB 741',
-    company: 'DEMİR',
-    price: '2500₺',
-    approved: false,
-  },
-  {
-    id: '332',
-    date: '06.12.2025',
-    plate: '34 NNB 741',
-    company: 'DEMİR',
-    price: '2500₺',
-    approved: false,
-  },
-  {
-    id: '333',
-    date: '06.12.2025',
-    plate: '34 NNB 741',
-    company: 'DEMİR',
-    price: '2500₺',
-    approved: false,
-  },
-  {
-    id: '334',
-    date: '06.12.2025',
-    plate: '34 NNB 741',
-    company: 'DEMİR',
-    price: '2500₺',
-    approved: false,
-  },
 ];
 
 /* ================= SCREEN ================= */
 
 export default function SupplierVehicles() {
+  const [activeTab, setActiveTab] = useState<'vehicles' | 'trips'>('vehicles');
+
+  const [vehicleModal, setVehicleModal] = useState(false);
+  const [selectedVehicle, setSelectedVehicle] = useState<any>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const [vehicles, setVehicles] = useState<VehicleUI[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [plate, setPlate] = useState('');
+  const [initialPlate, setInitialPlate] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [addVehicleModal, setAddVehicleModal] = useState(false);
+  const [newPlate, setNewPlate] = useState('');
+  const [newDriverPhone, setNewDriverPhone] = useState('');
+  
+  const [driver, setDriver] = useState<any>({
+    name: 'Burak Yılmaz',
+    phone: '+905555555555',
+  }); // null olursa şoför yok
+
+  const [driverRemoved, setDriverRemoved] = useState(false);
+
   const [receiptVisible, setReceiptVisible] = useState(false);
   const [selectedTrip, setSelectedTrip] = useState<any>(null);
+  const token = useAppSelector(state => state.auth.token);
+
+  /* ================= ACTIONS ================= */
+  const formatDateDMY = (isoDate: string) => {
+    if (!isoDate) return '-';
+
+    const date = new Date(isoDate);
+
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+
+    return `${day}.${month}.${year}`;
+  };
+
+  const formatPhone = (value: string) => {
+    // sadece rakamları al
+    const digits = value.replace(/\D/g, '').slice(0, 11);
+  
+    // 0XXX XXX XX XX
+    const part1 = digits.slice(0, 4);
+    const part2 = digits.slice(4, 7);
+    const part3 = digits.slice(7, 9);
+    const part4 = digits.slice(9, 11);
+  
+    let formatted = part1;
+  
+    if (part2) formatted += ` ${part2}`;
+    if (part3) formatted += ` ${part3}`;
+    if (part4) formatted += ` ${part4}`;
+  
+    return formatted;
+  };
+
+  const mapVehicleFromApi = (item: VehicleApi): VehicleUI => ({
+    id: item.id,
+    plate: item.plateNumber.replace(
+      /^(\d{2})([A-Z]+)(\d+)$/,
+      '$1 $2 $3'
+    ), // 11ASD1234 → 11 ASD 1234
+    canEdit: item.canEdit,
+    canDelete: item.canDelete,
+    createdDate: item.createdDate,
+  });
+  const normalizedPlate = (value: string) =>
+    value.replace(/\s/g, '').toUpperCase();
+  
+  const isPlateChanged =
+    normalizedPlate(plate) !== normalizedPlate(initialPlate);
+
+  const handleDeleteVehicle = async () => {
+    if (!token || !selectedVehicle?.id) return;
+  
+    try {
+      setDeleting(true);
+      console.log('🗑 handleDeleteVehicle:', selectedVehicle.id);
+  
+      await deleteVehicle(selectedVehicle.id, token);
+  
+      // modal & confirm kapat
+      setDeleteConfirm(false);
+      setVehicleModal(false);
+      setSelectedVehicle(null);
+  
+      // listeyi yenile
+      await fetchVehicles();
+  
+      console.log('✅ Araç silindi ve liste güncellendi');
+    } catch (err) {
+      console.log('❌ handleDeleteVehicle error:', err);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleUpdatePlate = async () => {
+    if (!token || !selectedVehicle?.id) return;
+  
+    try {
+      setSaving(true);
+  
+      const plateForApi = normalizedPlate(plate);
+  
+      console.log('✏️ Güncellenecek plaka:', plateForApi);
+  
+      await updateVehicle(
+        selectedVehicle.id,
+        plateForApi,
+        selectedVehicle.companyId,
+        token
+      );
+  
+      // modal kapat
+      setVehicleModal(false);
+      setSelectedVehicle(null);
+  
+      // listeyi yenile
+      await fetchVehicles();
+  
+      console.log('✅ Plaka güncellendi');
+    } catch (e) {
+      console.log('❌ handleUpdatePlate error:', e);
+    } finally {
+      setSaving(false);
+    }
+  };
+  
+  
+
+  const openVehicleDetail = (item: any) => {
+    setSelectedVehicle(item);
+    setPlate(item.plate);
+    setDriver(item.driver ?? {
+      name: 'Burak Yılmaz',
+      phone: '+905555555555',
+    });
+    setDriverRemoved(false);
+    setVehicleModal(true);
+  };
+
+
+const confirmDeleteWithAlert = () => {
+  Alert.alert(
+    'Aracı Sil',
+    'Bu işlem geri alınamaz. Emin misiniz?',
+    [
+      { text: 'Vazgeç', style: 'cancel' },
+      {
+        text: 'Sil',
+        style: 'destructive',
+        onPress: handleDeleteVehicle,
+      },
+    ]
+  );
+};
 
   const openReceipt = (item: any) => {
     setSelectedTrip(item);
     setReceiptVisible(true);
   };
+  const fetchVehicles = async () => {
+    if (!token) return; // ✅ burada null engellenir
 
-  const closeReceipt = () => {
-    setReceiptVisible(false);
-    setSelectedTrip(null);
+    try {
+      setLoading(true);
+      setError(null);
+
+      const data = await getVehicles(token); // artık TS mutlu
+      const mapped = data.map(mapVehicleFromApi);
+      setVehicles(mapped);
+    } catch (e) {
+      setError('Araçlar yüklenemedi');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  /* ================= HELPERS ================= */
+  useEffect(() => {
+    fetchVehicles();
+  }, [token]);
 
-  const ReceiptLine = ({ label, value }: any) => (
-    <View style={styles.lineRow}>
-      <Text style={styles.lineLabel}>{label} :</Text>
-      <Text style={styles.lineValue}>{value}</Text>
-    </View>
-  );
-
-  const ActionButton = ({ label, icon }: any) => (
-    <TouchableOpacity style={styles.actionBtnNew} activeOpacity={0.8}>
-      <Text style={{ fontSize: 16 }}>{icon}</Text>
-      <Text style={styles.actionText}>{label}</Text>
-    </TouchableOpacity>
-  );
 
   /* ================= RENDERS ================= */
 
   const renderVehicle = ({ item }: any) => (
-    <View style={styles.vehicleRow}>
-      <Text style={[styles.vehicleCellText, { width: 120 }]}>{item.plate}</Text>
-
-      <Text style={[styles.vehicleCellText, { width: 100 }]}>{item.fuel}</Text>
-
-      <Text style={[styles.vehicleCellText, { width: 110 }]}>{item.cash}</Text>
-
-      <View style={{ width: 110, alignItems: 'center' }}>
-        <TouchableOpacity style={styles.outlineBtn}>
-          <Text>Şoför Ata</Text>
-        </TouchableOpacity>
+    <TouchableOpacity
+      style={styles.vehicleCard}
+      activeOpacity={0.85}
+      onPress={() => openVehicleDetail(item)}
+    >
+      <View style={styles.plateBox}>
+        <Text style={styles.plateText}>{item.plate}</Text>
       </View>
 
-      <View style={{ width: 110, alignItems: 'center' }}>
-        <TouchableOpacity style={styles.outlineBtn}>
-          <Text>Yakıt Ekle</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+      {/* <Text style={styles.vehicleInfo}>Harcanan Yakıt: {item.fuel}</Text>
+      <Text style={styles.vehicleInfo}>Toplanan Para: {item.cash}</Text> */}
+      <Text style={styles.vehicleDate}>Kayıt: {formatDateDMY(item.createdDate)}</Text>
+    </TouchableOpacity>
   );
 
   const renderTrip = ({ item }: any) => (
@@ -156,13 +278,16 @@ export default function SupplierVehicles() {
       </Text>
       <Text style={[styles.cell, { width: 70 }]}>{item.price}</Text>
 
-      <TouchableOpacity style={[styles.cellCenter, { width: 40 }]} onPress={() => openReceipt(item)}>
-        <Text style={{ fontSize: 16 }}>📄</Text>
+      <TouchableOpacity
+        style={[styles.cellCenter, { width: 40 }]}
+        onPress={() => openReceipt(item)}
+      >
+        <Text>📄</Text>
       </TouchableOpacity>
 
-      <View style={styles.onayCell}>
+      <View style={{ width: 70, alignItems: 'center' }}>
         {item.approved ? (
-          <Text style={styles.check}>✔</Text>
+          <Text style={{ fontSize: 16 }}>✔</Text>
         ) : (
           <TouchableOpacity style={styles.approveBtn}>
             <Text style={styles.approveText}>Onayla</Text>
@@ -173,179 +298,409 @@ export default function SupplierVehicles() {
   );
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      {/* ================= HEADER ================= */}
-      <Text style={styles.title}>FİRMANIZA AİT ARAÇLAR</Text>
+    <SafeAreaView style={styles.container}>
+      {/* HEADER */}
+      <Text style={styles.title}>Araç Yönetimi</Text>
+      <Text style={styles.subTitle}>Araç listeniz ve yönetim işlemleri</Text>
 
-      {/* SUMMARY */}
-      <View style={styles.summaryRow}>
-        <SummaryBox label="Harcanan Yakıt" value={summary.spentFuel} />
-        <SummaryBox label="Toplanan Nakit" value={summary.collectedCash} />
-        <SummaryBox label="Beklenen Nakit" value={summary.expectedCash} />
-      </View>
+      {/* TABS */}
+      <View style={styles.tabRow}>
+        <View style={styles.tabs}>
+          <TouchableOpacity
+            style={[styles.tabBtn, activeTab === 'vehicles' && styles.tabActive]}
+            onPress={() => setActiveTab('vehicles')}
+          >
+            <Text style={activeTab === 'vehicles' ? styles.tabTextActive : styles.tabText}>
+              Araçlar ({vehicles.length})
+            </Text>
+          </TouchableOpacity>
 
-      <View style={styles.stats}>
-        <Text>Bugün atılan seferler: {summary.todayTrips}</Text>
-        <Text>Aylık atılan seferler: {summary.monthlyTrips}</Text>
-        <Text>Ödemesi alınan: {summary.paidTrips}</Text>
-        <Text>Ödemesi alınmayan: {summary.unpaidTrips}</Text>
+          <TouchableOpacity
+            style={[styles.tabBtn, activeTab === 'trips' && styles.tabActive]}
+            onPress={() => setActiveTab('trips')}
+          >
+            <Text style={activeTab === 'trips' ? styles.tabTextActive : styles.tabText}>
+              Seferler ({trips.length})
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity style={styles.addBtn} onPress={() => setAddVehicleModal(true)}>
+          <Text style={styles.addBtnText}>＋ Yeni Araç Ekle</Text>
+        </TouchableOpacity>
       </View>
 
       {/* ================= VEHICLES ================= */}
-      <Text style={styles.sectionTitle}>ARAÇLAR</Text>
+      {activeTab === 'vehicles' && (
+        <FlatList
+          data={vehicles}
+          keyExtractor={i => i.id}
+          renderItem={renderVehicle}
+          numColumns={2}
+          columnWrapperStyle={{ justifyContent: 'space-between' }}
+          contentContainerStyle={{ paddingVertical: 12,gap:10,padding:5 }}
+        />
+      )}
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        <View style={{ width: 560 }}>
-          {/* HEADER */}
-          <View style={styles.vehicleTableHeader}>
-            <Text style={[styles.vehicleHead, { width: 120 }]}>Plaka</Text>
-            <Text style={[styles.vehicleHead, { width: 100 }]}>Harcanan Yakıt</Text>
-            <Text style={[styles.vehicleHead, { width: 110 }]}>Toplanan Para</Text>
-            <Text style={[styles.vehicleHead, { width: 110 }]}>Şoför</Text>
-            <Text style={[styles.vehicleHead, { width: 110 }]}>Yakıt</Text>
+      {/* ================= TRIPS ================= */}
+      {activeTab === 'trips' && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={{ width: 520 }}>
+            <View style={styles.tableHeader}>
+              <Text style={[styles.hCell, { width: 50 }]}>Seri</Text>
+              <Text style={[styles.hCell, { width: 90 }]}>Tarih</Text>
+              <Text style={[styles.hCell, { width: 95 }]}>Plaka</Text>
+              <Text style={[styles.hCell, { width: 80 }]}>Firma</Text>
+              <Text style={[styles.hCell, { width: 70 }]}>Ödeme</Text>
+              <Text style={[styles.hCell, { width: 40 }]}>Fiş</Text>
+              <Text style={[styles.hCell, { width: 70 }]}>Onay</Text>
+            </View>
+
+            <FlatList data={trips} keyExtractor={i => i.id} renderItem={renderTrip} />
           </View>
+        </ScrollView>
+      )}
 
-          {/* LIST */}
-          <FlatList data={vehicles} keyExtractor={i => i.id} renderItem={renderVehicle} contentContainerStyle={{ paddingBottom: 12 }} showsVerticalScrollIndicator={false} />
-        </View>
-      </ScrollView>
+      {/* ================= VEHICLE DETAIL MODAL ================= */}
+      <Modal visible={vehicleModal} transparent animationType="fade">
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.modalOverlay}>
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              style={{ width: '100%' }}
+            >
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={{ alignItems: 'center' }}
+              >
+                <View style={styles.editCard}>
+                  {/* HEADER */}
+                  <View style={styles.headerRow}>
+                    <Text style={styles.editTitle}>🚚 Araç Düzenle</Text>
 
-      {/* ================= TRIPS TABLE ================= */}
-      <Text style={styles.sectionTitle}>ARAÇLARINIZA AİT SEFERLER</Text>
+                    <Pressable
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        setVehicleModal(false);
+                      }}
+                    >
+                      <Text style={styles.closeX}>✕</Text>
+                    </Pressable>
+                  </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        <View style={{ width: 520 }}>
-          {/* HEADER */}
-          <View style={styles.tableHeader}>
-            <Text style={[styles.hCell, { width: 50 }]}>Seri</Text>
-            <Text style={[styles.hCell, { width: 90 }]}>Tarih</Text>
-            <Text style={[styles.hCell, { width: 95 }]}>Plaka</Text>
-            <Text style={[styles.hCell, { width: 80 }]}>Firma</Text>
-            <Text style={[styles.hCell, { width: 70 }]}>Ödeme</Text>
-            <Text style={[styles.hCell, { width: 40 }]}>Fiş</Text>
-            <Text style={[styles.hCell, { width: 70 }]}>Onay</Text>
+                  {/* SUCCESS */}
+                  {driverRemoved && (
+                    <View style={styles.successBox}>
+                      <Text style={styles.successText}>
+                        ✔ Şoför başarıyla kaldırıldı.
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* PLAKA */}
+                  <Text style={styles.label}>Plaka Numarası *</Text>
+                  <TextInput
+                    value={plate}
+                    onChangeText={setPlate}
+                    style={styles.plateInput}
+                    placeholder="Plaka giriniz"
+                    autoCapitalize="characters"
+                  />
+
+                  {/* ACTIONS */}
+                  <View style={styles.actionRow}>
+                  <TouchableOpacity
+  style={[
+    styles.saveBtn,
+    !isPlateChanged && { opacity: 0.5 },
+  ]}
+  disabled={!isPlateChanged || saving}
+  onPress={handleUpdatePlate}
+>
+  <Text style={styles.saveText}>
+    {saving ? 'Kaydediliyor…' : '✔ Kaydet'}
+  </Text>
+</TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.confirmDeleteBtn}
+                      onPress={confirmDeleteWithAlert}
+                      disabled={deleting}
+                    >
+                      <Text style={{ color: '#fff', fontWeight: '700' }}>
+                        {deleting ? 'Siliniyor...' : 'Plakayı Sil'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.divider} />
+
+                  {/* DRIVER */}
+                  <Text style={styles.section}>👤 Şoför Bilgisi</Text>
+
+                  {driver ? (
+                    <View style={styles.driverCard}>
+                      <View>
+                        <Text style={styles.driverName}>{driver.name}</Text>
+                        <Text style={styles.driverPhone}>{driver.phone}</Text>
+                      </View>
+
+                      <TouchableOpacity
+                        style={styles.removeBtn}
+                        onPress={() => {
+                          setDriver(null);
+                          setDriverRemoved(true);
+                          setNewDriverPhone('');
+                          Keyboard.dismiss();
+                        }}
+                      >
+                        <Text style={styles.removeText}>Kaldır</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <>
+                      <View style={styles.warningBox}>
+                        <Text style={styles.warningText}>
+                          ⚠ Bu araca henüz şoför atanmamış. Aşağıdan şoför
+                          atayabilirsiniz.
+                        </Text>
+                      </View>
+
+                      <Text style={styles.label}>Şoför Telefon Numarası *</Text>
+
+                      <View style={styles.assignRow}>
+                        <TextInput
+                          value={newDriverPhone}
+                          onChangeText={text => setNewDriverPhone(formatPhone(text))} //newDriverPhone.replace(/\s/g, '') servise giderken boşlukları siler 
+                          style={styles.phoneInput}
+                          keyboardType="phone-pad"
+                          placeholder="05__ ___ __ __"
+                          maxLength={14}
+                          returnKeyType="done"
+                          onSubmitEditing={Keyboard.dismiss}
+                        />
+
+                        <TouchableOpacity
+                          style={[
+                            styles.assignBtn,
+                            !newDriverPhone && { opacity: 0.5 },
+                          ]}
+                          disabled={!newDriverPhone}
+                        >
+                          <Text style={styles.assignText}>👤 Şoför Ata</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      <Text style={styles.helpText}>
+                        ℹ Şoför olarak atanacak kişinin telefon numarasını girin.
+                      </Text>
+                      <Text style={styles.helpText}>
+                        💡 Kendiniz kullanacaksanız kendi numaranızı yazın.
+                      </Text>
+                    </>
+                  )}
+                </View>
+              </ScrollView>
+            </KeyboardAvoidingView>
           </View>
+        </TouchableWithoutFeedback>
 
-          <FlatList data={trips} keyExtractor={i => i.id} renderItem={renderTrip} contentContainerStyle={{ paddingBottom: 24 }} showsVerticalScrollIndicator={false} />
-        </View>
-      </ScrollView>
+        {/* DELETE CONFIRM */}
+        <Modal visible={deleteConfirm} transparent animationType="fade">
+          <View style={styles.modalOverlay}>
+            <View style={styles.confirmCard}>
+              <Text style={{ fontSize: 16, fontWeight: '800', marginBottom: 10 }}>
+                Aracı silmek istiyor musunuz?
+              </Text>
+              <Text style={{ color: '#666', marginBottom: 20 }}>
+                Bu işlem geri alınamaz.
+              </Text>
+
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <TouchableOpacity
+                  style={styles.cancelBtn}
+                  onPress={() => setDeleteConfirm(false)}
+                >
+                  <Text>Vazgeç</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.confirmDeleteBtn}>
+                  <Text style={{ color: '#fff', fontWeight: '700' }}>Sil</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </Modal>
+
+
+
+
 
       {/* ================= RECEIPT MODAL ================= */}
       <Modal visible={receiptVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={styles.receiptCard}>
-            {/* HEADER */}
-            <View style={styles.receiptHeader}>
-              <View style={styles.logoCircle}>
-                <Image source={require('../../../assets/logoNew.png')} style={styles.logoImage} />
-              </View>
+          <View style={styles.detailCard}>
+            <Text style={styles.detailPlate}>Sefer Fişi</Text>
+            <Text>Plaka: {selectedTrip?.plate}</Text>
+            <Text>Tutar: {selectedTrip?.price}</Text>
 
-              <View style={{ flex: 1, alignItems: 'center' }}>
-                <Text style={styles.companyTitle}>KAYA HAFRİYAT</Text>
-                <Text style={styles.siteTitle}>GÜNEŞLİ ŞANTİYESİ</Text>
-              </View>
-
-              <Text style={styles.timeText}>13:26</Text>
-            </View>
-
-            {/* BODY */}
-            <View style={styles.receiptBody}>
-              <View style={{ flex: 1 }}>
-                <ReceiptLine label="Tarih" value="07.12.2025" />
-                <ReceiptLine label="Seri No" value={selectedTrip?.id ?? '-'} />
-                <ReceiptLine label="Plaka" value={selectedTrip?.plate ?? '-'} />
-                <ReceiptLine label="Döküm" value="Cebeci 37800" />
-                <ReceiptLine label="Ücret" value={selectedTrip?.price ?? '-'} />
-                <ReceiptLine label="Yetkili" value="532 321 21 21" />
-              </View>
-
-              <View style={styles.qrContainer}>
-                <View style={styles.qrBox}>
-                  <Text>QR</Text>
-                </View>
-              </View>
-            </View>
-
-            {/* ACTIONS */}
-            <View style={styles.actionRow}>
-              <ActionButton label="İndir" icon="⬇️" />
-              <ActionButton label="WhatsApp" icon="✈️" />
-              <ActionButton label="Yazdır" icon="🖨️" />
-            </View>
-
-            <TouchableOpacity onPress={closeReceipt}>
+            <TouchableOpacity onPress={() => setReceiptVisible(false)}>
               <Text style={styles.closeText}>Kapat</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
+      {/* ================= New vehicle MODAL ================= */}
+      <Modal visible={addVehicleModal} transparent animationType="fade">
+  <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+    <View style={styles.modalOverlay}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ width: '100%' }}
+      >
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ alignItems: 'center' }}
+        >
+          <View style={styles.addCard}>
+            {/* HEADER */}
+            <View style={styles.addHeader}>
+              <Text style={styles.addIcon}>🚚</Text>
+              <Text style={styles.addTitle}>Yeni Araç Ekle</Text>
+            </View>
+
+            {/* PLAKA */}
+            <View style={{padding:'5%'}}>
+            <Text style={styles.label}>PLAKA NUMARASI *</Text>
+            <TextInput
+              value={newPlate}
+              onChangeText={setNewPlate}
+              style={styles.plateInput}
+              placeholder="34 ABC 123"
+              autoCapitalize="characters"
+            />
+            <Text style={styles.hint}>ℹ Örn: 34 ABC 123</Text>
+
+            <View style={styles.divider} />
+
+            {/* DRIVER PHONE */}
+            <Text style={styles.label}>ŞOFÖR TELEFON NUMARASI *</Text>
+            <TextInput
+  value={newDriverPhone}
+  onChangeText={text => setNewDriverPhone(formatPhone(text))}
+  style={styles.phoneInput}
+  keyboardType="phone-pad"
+  placeholder="05__ ___ __ __"
+  maxLength={14} // boşluklar dahil
+/>
+
+            <Text style={styles.helpText}>
+              ℹ Şoförün telefon numarasını girin.
+            </Text>
+            <Text style={styles.helpText}>
+              💡 Kendiniz kullanacaksanız kendi numaranızı yazın.
+            </Text>
+
+            {/* SAVE */}
+            <TouchableOpacity
+              style={[
+                styles.saveBigBtn,
+                !(newPlate && newDriverPhone) && { opacity: 0.5 },
+              ]}
+              disabled={!(newPlate && newDriverPhone)}
+            >
+              <Text style={styles.saveBigText}>✔ Aracı Kaydet</Text>
+            </TouchableOpacity>
+
+            {/* CANCEL */}
+            <TouchableOpacity
+              onPress={() => {
+                Keyboard.dismiss();
+                setAddVehicleModal(false);
+                setNewPlate('');
+                setNewDriverPhone('');
+              }}
+            >
+              <Text style={styles.cancelText}>İptal</Text>
+            </TouchableOpacity>
+            </View>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
+  </TouchableWithoutFeedback>
+</Modal>
+
     </SafeAreaView>
   );
 }
 
-/* ================= SMALL ================= */
-
-const SummaryBox = ({ label, value }: any) => (
-  <View style={styles.summaryBox}>
-    <Text style={{ fontSize: 11 }}>{label}</Text>
-    <Text style={{ fontWeight: '700' }}>{value}</Text>
-  </View>
-);
-
 /* ================= STYLES ================= */
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: GRAY, paddingLeft: 10, paddingRight: 10, paddingTop: 10 },
+  container: { flex: 1, backgroundColor: '#FFFBEA', padding: 16 },
 
-  title: {
-    textAlign: 'center',
-    fontWeight: '800',
-    fontSize: 16,
-    marginBottom: 12,
-    color: DARK,
-    marginTop: '-10%',
-  },
+  title: { fontSize: 22, fontWeight: '800', color: DARK },
+  subTitle: { fontSize: 13, color: '#777', marginBottom: 12 },
 
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  summaryBox: {
-    backgroundColor: '#eee',
-    borderRadius: 14,
-    padding: 10,
-    width: '32%',
-    alignItems: 'center',
-  },
-
-  stats: { marginVertical: 10, marginLeft: '5%' },
-
-  sectionTitle: {
-    fontWeight: '800',
-    marginTop: 16,
-    marginBottom: 8,
-    color: DARK,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: '5%',
-  },
-
-  vehicleRow: {
+  tabRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 0.5,
-    borderColor: '#ddd',
+    marginBottom: 12,
+  },
+
+  tabs: {
+    flexDirection: 'row',
     backgroundColor: '#fff',
-  },
-
-  plate: { width: 90, fontWeight: '700', color: DARK },
-  vehicleCell: { width: 80, color: DARK },
-
-  outlineBtn: {
-    borderWidth: 1,
     borderRadius: 14,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    marginLeft: 6,
+    padding: 4,
   },
+
+  tabBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 12 },
+  tabActive: { backgroundColor: YELLOW },
+
+  tabText: { color: '#777', fontWeight: '600' },
+  tabTextActive: { color: '#222', fontWeight: '700' },
+
+  addBtn: {
+    backgroundColor: YELLOW,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+  },
+
+  addBtnText: { fontWeight: '700' },
+
+  vehicleCard: {
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    padding: 14,
+    width: '48%',
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.22,
+    shadowRadius: 1.22,
+
+    elevation: 3,
+  },
+
+  plateBox: {
+    borderWidth: 2,
+    borderRadius: 8,
+    paddingVertical: 6,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+
+  plateText: { fontSize: 16, fontWeight: '800' },
+  vehicleInfo: { fontSize: 12, color: '#444' },
+  vehicleDate: { fontSize: 11, color: '#999', marginTop: 4 },
 
   tableHeader: {
     flexDirection: 'row',
@@ -354,38 +709,18 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
   },
 
-  hCell: {
-    fontSize: 11,
-    fontWeight: '700',
-    textAlign: 'center',
-    color: DARK,
-  },
+  hCell: { fontSize: 11, fontWeight: '700', textAlign: 'center' },
 
   row: {
     flexDirection: 'row',
-    alignItems: 'center',
     paddingVertical: 10,
     borderBottomWidth: 0.5,
     borderColor: '#ddd',
     backgroundColor: '#fff',
   },
 
-  cell: {
-    fontSize: 11,
-    textAlign: 'center',
-    color: DARK,
-  },
-
-  cellCenter: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  onayCell: {
-    width: 70,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  cell: { fontSize: 11, textAlign: 'center' },
+  cellCenter: { alignItems: 'center', justifyContent: 'center' },
 
   approveBtn: {
     backgroundColor: YELLOW,
@@ -396,116 +731,310 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  approveText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: DARK,
-  },
-
-  check: { fontSize: 18 },
+  approveText: { fontSize: 11, fontWeight: '700' },
 
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 16,
   },
 
-  receiptCard: {
-    width: '100%',
-    maxWidth: 420,
+  detailCard: {
+    width: '85%',
     backgroundColor: '#fff',
     borderRadius: 20,
-    padding: 16,
-    borderWidth: 2,
-    borderColor: '#000',
+    padding: 20,
   },
 
-  receiptHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
+  detailPlate: { fontSize: 18, fontWeight: '800', marginBottom: 10 },
+
+  closeText: {
+    textAlign: 'center',
+    marginTop: 16,
+    color: '#555',
+  },
+  editCard: {
+    width: '92%',
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 20,
   },
 
-  logoCircle: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: YELLOW,
-    alignItems: 'center',
-    justifyContent: 'center',
+  editHeader: {
+    marginBottom: 14,
   },
 
-  logoImage: { width: 30, height: 30, resizeMode: 'contain' },
-
-  companyTitle: { fontSize: 14, fontWeight: '800' },
-  siteTitle: { fontSize: 12, fontWeight: '600' },
-  timeText: { fontSize: 12, fontWeight: '600' },
-
-  receiptBody: { flexDirection: 'row', marginTop: 8 },
-
-  lineRow: { flexDirection: 'row', marginVertical: 2 },
-  lineLabel: { width: 70, fontSize: 11, color: '#666' },
-  lineValue: { fontSize: 11, fontWeight: '600' },
-
-  qrContainer: {
-    width: 100,
-    alignItems: 'center',
-    justifyContent: 'center',
+  editTitle: {
+    fontSize: 20,
+    fontWeight: '800',
   },
 
-  qrBox: {
-    width: 80,
-    height: 80,
+  label: {
+    marginTop: 10,
+    fontWeight: '600',
+    color: '#666',
+  },
+
+  inputBox: {
     borderWidth: 1,
-    borderColor: '#000',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderColor: '#ddd',
+    borderRadius: 10,
+    padding: 14,
+    marginTop: 6,
+  },
+
+  inputText: {
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
   },
 
   actionRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     marginTop: 14,
   },
 
-  actionBtnNew: {
-    flex: 1,
+  saveBtn: {
+    backgroundColor: '#F5A623',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    marginRight: 10,
+  },
+
+  saveText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
+
+  backBtn: {
+    backgroundColor: '#777',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+  },
+
+  backText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
+
+  divider: {
+    height: 1,
+    backgroundColor: '#eee',
+    marginVertical: 20,
+  },
+
+  section: {
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 10,
+  },
+
+  driverCard: {
     borderWidth: 1,
-    borderColor: '#000',
+    borderColor: '#eee',
     borderRadius: 12,
-    paddingVertical: 6,
-    marginHorizontal: 4,
+    padding: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
 
-  actionText: { fontSize: 11, fontWeight: '600' },
-
-  closeText: {
-    textAlign: 'center',
-    marginTop: 10,
-    fontSize: 12,
-    color: '#555',
+  driverName: {
+    fontWeight: '700',
+    fontSize: 15,
   },
-  vehicleTableHeader: {
+
+  driverPhone: {
+    color: '#F5A623',
+    marginTop: 4,
+  },
+
+  removeBtn: {
+    borderWidth: 1,
+    borderColor: '#FF3B30',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+
+  removeText: {
+    color: '#FF3B30',
+    fontWeight: '700',
+  },
+
+  successBox: {
+    backgroundColor: '#EAF7EA',
+    borderColor: '#4CAF50',
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+
+  successText: {
+    color: '#2E7D32',
+    fontWeight: '600',
+  },
+
+  warningBox: {
+    backgroundColor: '#FFF4E5',
+    borderColor: '#FF9800',
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 10,
+  },
+
+  warningText: {
+    color: '#E65100',
+    fontWeight: '600',
+  },
+
+  assignRow: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderColor: '#ccc',
-    paddingBottom: 6,
-    marginBottom: 4,
+    alignItems: 'center',
+    marginTop: 8,
   },
 
-  vehicleHead: {
-    fontSize: 11,
+  phoneInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    marginRight: 10,
+    fontSize: 15,
+  },
+
+  assignBtn: {
+    backgroundColor: '#4CAF50',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+  },
+
+  assignText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
+
+  helpText: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 6,
+  },
+  plateInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    marginTop: 6,
+    fontSize: 18,
     fontWeight: '700',
     textAlign: 'center',
-    color: '#222',
+    letterSpacing: 1,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
 
-  vehicleCellText: {
-    fontSize: 12,
-    textAlign: 'center',
-    color: '#222',
+  closeX: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#555',
   },
+
+  deleteBtn: {
+    backgroundColor: '#FFEAEA',
+    borderWidth: 1,
+    borderColor: '#FF3B30',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+  },
+
+  deleteText: {
+    color: '#FF3B30',
+    fontWeight: '700',
+  },
+
+  confirmCard: {
+    width: '80%',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+  },
+
+  cancelBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    backgroundColor: '#eee',
+  },
+
+  confirmDeleteBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    backgroundColor: '#FF3B30',
+  },
+  addCard: {
+    width: '92%',
+    backgroundColor: '#fff',
+    borderRadius: 22,
+    overflow: 'hidden',
+  },
+  
+  addHeader: {
+    backgroundColor: '#F5A623',
+    paddingVertical: 26,
+    alignItems: 'center',
+  },
+  
+  addIcon: {
+    fontSize: 36,
+    color: '#fff',
+    marginBottom: 6,
+  },
+  
+  addTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#fff',
+  },
+  
+  hint: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 6,
+  },
+  
+  saveBigBtn: {
+    backgroundColor: '#0A66FF',
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginTop: 26,
+  },
+  
+  saveBigText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  
+  cancelText: {
+    textAlign: 'center',
+    marginTop: 16,
+    color: '#999',
+    fontSize: 14,
+  },
+  
 });

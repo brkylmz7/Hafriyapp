@@ -48,7 +48,7 @@ export const verifySms = async (phone: string, code: string) => {
 /* REGISTER – YENİ KAYIT */
 export const register = async (payload: {
   phoneNumber: string;
-  userType: number; // 0 driver, 1 supplier
+  userType: number; // 0 supplier, 1 driver
   firstName?: string;
   lastName?: string;
   companyName?: string;
