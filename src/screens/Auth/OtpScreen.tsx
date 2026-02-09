@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, Alert, TouchableOpacity, StyleSheet, Image, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import { CodeField, Cursor, useBlurOnFulfill, useClearByFocusCell } from 'react-native-confirmation-code-field';
 import { useAppSelector, useAppDispatch } from '../../hooks';
-import { loginSuccess, setRole, setUser } from '../../store/slices/authSlice';
+import { loginSuccess, setRole, setUser, setCompanyId } from '../../store/slices/authSlice';
 import { useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import { login, verifySms } from '../../services/authService';
@@ -50,7 +50,7 @@ const OtpScreen = () => {
         return;
       }
 
-      const { token, userId, userType } = res.data;
+      const { token, userId, userType, companyId } = res.data;
 
       // 🔁 userType → role mapping
       const role = userType === 0 ? 'driver' : 'supplier';
@@ -59,10 +59,12 @@ const OtpScreen = () => {
         token,
         phone,
         role,
+        companyId, // ✅ EKLENDI
       });
       // 🔐 Redux
       dispatch(loginSuccess({ token }));
       dispatch(setRole(role));
+      dispatch(setCompanyId(companyId)); // ✅ Redux'a kaydet
       // 👤 USER BİLGİLERİNİ ÇEK
       const userRes = await getUserById(userId, token);
       console.log('userId', userId);

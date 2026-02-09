@@ -3,18 +3,21 @@ import * as Keychain from 'react-native-keychain';
 const SERVICE = 'hafriyapp.auth';
 
 /* 🔐 TOKEN KAYDET */
+/* 🔐 TOKEN KAYDET */
 export const saveAuth = async ({
   token,
   phone,
   role,
+  companyId,
 }: {
   token: string;
   phone: string;
   role: string;
+  companyId?: string;
 }) => {
   await Keychain.setGenericPassword(
     phone,
-    JSON.stringify({ token, role }),
+    JSON.stringify({ token, role, companyId }),
     {
       service: SERVICE,
       accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED,
@@ -37,6 +40,7 @@ export const getAuth = async () => {
     phone,
     token: parsed.token,
     role: parsed.role,
+    companyId: parsed.companyId,
   };
 };
 

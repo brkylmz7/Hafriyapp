@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { createJobSite, updateJobSite } from '../services/jobSiteNewService';
 import {
   View,
   Text,
@@ -9,10 +10,11 @@ import {
   TextInputProps,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Platform, ActionSheetIOS } from 'react-native';
+import { Platform, ActionSheetIOS, Alert } from 'react-native';
 import { CITIES } from '../constants/cities';
 import { DISTRICTS } from '../constants/districts';
 import { useAppSelector } from '../hooks';
+import { clampRGBA } from 'react-native-reanimated/lib/typescript/Colors';
 const YELLOW = '#FFD500';
 const CARD_BG = '#fff';
 
@@ -47,23 +49,32 @@ type CardProps = {
 };
 
 type NewJobModalProps = {
-  onClose: () => void;
+  onClose: (refresh?: boolean) => void;
+  initialJob?: any;
 };
 
 /* ================= COMPONENT ================= */
 
-export default function NewJobModal({ onClose }: NewJobModalProps) {
+export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
   const insets = useSafeAreaInsets();
 
-  // ✅ Auth’tan alacaksın
-  const companyId = useAppSelector(state => state.auth.user?.id) // TODO: useAppSelector(state => state.auth.user?.id)
+  const user = useAppSelector(state => state.auth.user);
+  const companyId = useAppSelector(state => state.auth.companyId) || user?.companyId; // Fallback to user if needed
+  console.log('asdasd', companyId);
+
+  if (!companyId) {
+    console.warn("⚠️ CompanyId bulunamadı! Lütfen tekrar giriş yapın.");
+  }
+
+  const token = useAppSelector(state => state.auth.token);
+  // const token = useAppSelector(state => state.auth.token);
 
   const [jobCategory, setJobCategory] = useState<JobCategory>('HAFRIYAT');
 
   const [siteName, setSiteName] = useState('');
   const [provinceCode, setProvinceCode] = useState<number | null>(null);
   const [districtName, setDistrictName] = useState<string>('');
-  
+
   const [locationUrl, setLocationUrl] = useState('');
   const [phones, setPhones] = useState<string[]>(['']);
   const [description, setDescription] = useState('');
@@ -85,7 +96,92 @@ export default function NewJobModal({ onClose }: NewJobModalProps) {
     if (!provinceCode) return [];
     return DISTRICTS[provinceCode] ?? [];
   }, [provinceCode]);
-  
+
+  // 🛠 EDİT MODU: Verileri doldur
+  useEffect(() => {
+    if (initialJob) {
+      console.log('📝 EDIT MODE:', initialJob);
+      setSiteName(initialJob.name);
+      setProvinceCode(initialJob.provinceCode);
+      // District set timeout ile veya direk (list memo oldugu icin sorun olmaz)
+      setDistrictName(initialJob.districtName);
+      setLocationUrl(initialJob.locationUrl);
+      setDescription(initialJob.description);
+
+      if (initialJob.contactPhone) {
+        setPhones(initialJob.contactPhone.split(', '));
+      }
+
+      setFuelStock(String(initialJob.fuelStock || ''));
+      setStartTime(initialJob.loadingStartTime || '');
+      setEndTime(initialJob.loadingEndTime || '');
+
+      const isKum = initialJob.hasSand; // Backend'den gelen boolean
+      setJobCategory(isKum ? 'KUM_MICIR' : 'HAFRIYAT');
+
+      // Offer/Route Parsing
+      // NOT: Backend offer1Name, offer1Cash vs. ve extraOffersJson olarak dönüyor olmalı.
+      // Eğer dönmüyorsa MyJobs içinde maplerken bu detayları kaybediyor muyuz? kontrol etmeliyiz.
+      // initialJob burada FULL DATA olmalı.
+
+      if (isKum) {
+        // KUM MICIR
+        const newRoutes: Route[] = [];
+        // 1. Rota
+        if (initialJob.offer1Name) {
+          const parts = initialJob.offer1Name.split(' - ');
+          newRoutes.push({
+            loadLocation: parts[0] || '',
+            unloadLocation: parts[1] || '',
+            cashPerTon: String(initialJob.offer1Cash || ''),
+            material: '', // offer1 için material field yoktu ? extraOffersJson da var.
+          });
+        }
+        // Diğer rotalar
+        if (initialJob.extraOffersJson) {
+          try {
+            const extras = JSON.parse(initialJob.extraOffersJson);
+            extras.forEach((e: any) => {
+              newRoutes.push({
+                loadLocation: e.loading,
+                unloadLocation: e.unloading,
+                cashPerTon: String(e.cashPerTon),
+                material: e.material
+              });
+            });
+          } catch (e) { }
+        }
+        setRoutes(newRoutes.length > 0 ? newRoutes : [{ loadLocation: '', unloadLocation: '', cashPerTon: '', material: '' }]);
+
+      } else {
+        // HAFRIYAT
+        const newOffers: Offer[] = [];
+        // 1. Teklif
+        if (initialJob.offer1Name) {
+          newOffers.push({
+            dumpLocation: initialJob.offer1Name,
+            cash: String(initialJob.offer1Cash || ''),
+            fuel: String(initialJob.offer1Fuel || '')
+          });
+        }
+        // Diğer teklifler
+        if (initialJob.extraOffersJson) {
+          try {
+            const extras = JSON.parse(initialJob.extraOffersJson);
+            extras.forEach((e: any) => {
+              newOffers.push({
+                dumpLocation: e.dumpLocation || e.name,
+                cash: String(e.cash),
+                fuel: String(e.fuel)
+              });
+            });
+          } catch (e) { }
+        }
+        setOffers(newOffers.length > 0 ? newOffers : [{ dumpLocation: '', cash: '', fuel: '' }]);
+      }
+    }
+  }, [initialJob]);
+
   /* ================= HELPERS ================= */
 
   const addOffer = () =>
@@ -145,92 +241,290 @@ export default function NewJobModal({ onClose }: NewJobModalProps) {
     return Math.trunc(n);
   };
 
-  /* ================= REQUEST ================= */
+  /* ================= HANDLERS ================= */
 
-  const request = useMemo(() => {
+  const isDirty = useMemo(() => {
+    if (!initialJob) return true; // Yeni kayıt
+
+    // Basit alanlar
+    if (siteName !== initialJob.name) return true;
+    if (provinceCode !== initialJob.provinceCode) return true;
+    if (districtName !== initialJob.districtName) return true;
+    if ((locationUrl || '') !== (initialJob.locationUrl || '')) return true;
+    if ((description || '') !== (initialJob.description || '')) return true;
+
+    const currentPhones = phones.filter(p => p.trim() !== '').join(', ');
+    if (currentPhones !== (initialJob.contactPhone || '')) return true;
+
+    if (String(toIntOr0(fuelStock)) !== String(initialJob.fuelStock || 0)) return true;
+    if ((startTime || '') !== (initialJob.loadingStartTime || '')) return true;
+    if ((endTime || '') !== (initialJob.loadingEndTime || '')) return true;
+
+    // Kategori
     const isKum = jobCategory === 'KUM_MICIR';
+    if (isKum !== initialJob.hasSand) return true;
 
-    // Hafriyat: tekliflerden cash/fuel var mı?
-    const hasCash = isKum
-      ? routes.some(r => (toDecimalOrNull(r.cashPerTon) ?? 0) > 0)
-      : offers.some(o => (toDecimalOrNull(o.cash) ?? 0) > 0);
+    // Offers / Routes Comparison
+    // Tek tek fieldları kontorl etmek yerine, handleSave'deki payload oluşturma mantığına benzer
+    // bir yapı ile "beklenen payload" üretip initial ile kıyaslayabiliriz ama bu ağır olabilir.
+    // Pratik çözüm: parse edilmiş initialRoutes/Offers ile şu anki state'i kıyaslamak.
 
-    const hasFuel = isKum
-      ? false
-      : offers.some(o => (toDecimalOrNull(o.fuel) ?? 0) > 0);
+    // Ancak initialRoutes state'ini tutmadık.
+    // Basitçe: initialJob.offer1Name ve extraOffersJson ile şu anki yapıyı kıyaslayalım.
 
-    // ✅ Backend’de gördüğün gibi:
-    // Offer1* / Offer2* alanlarını ilk 2 teklife bağlıyoruz.
-    const o1 = offers[0];
-    const o2 = offers[1];
+    // 1. Offer1 Name
+    let currentOffer1Name = '';
+    if (isKum) {
+      if (routes.length > 0) currentOffer1Name = `${routes[0].loadLocation} - ${routes[0].unloadLocation}`;
+    } else {
+      if (offers.length > 0) currentOffer1Name = offers[0].dumpLocation;
+    }
 
-    // Kum/Mıcır: rotaları ExtraOffersJson olarak gönderiyoruz
-    const extraOffersJson = isKum
-      ? JSON.stringify(
-          routes.map((r, idx) => ({
-            offerNo: idx + 1,
+    if (currentOffer1Name !== (initialJob.offer1Name || '')) return true;
+
+    // 2. Offer1 Cash/Fuel
+    let currentOffer1Cash = 0;
+    let currentOffer1Fuel = 0;
+    if (isKum) {
+      if (routes.length > 0) currentOffer1Cash = Number(routes[0].cashPerTon || '0');
+    } else {
+      if (offers.length > 0) {
+        currentOffer1Cash = Number(offers[0].cash || '0');
+        currentOffer1Fuel = Number(offers[0].fuel || '0');
+      }
+    }
+
+    if (currentOffer1Cash !== (initialJob.offer1Cash || 0)) return true;
+    if (currentOffer1Fuel !== (initialJob.offer1Fuel || 0)) return true;
+
+    // 3. ExtraOffers (JSON)
+    // Bu kısım zor, çünkü array order ve stringify formatı önemli.
+    // Şimdilik extraOffersJson string'i ile karşılaştırmak yerine length kontrolü + deep check yapalım.
+
+    // Basitçe stringify yapıp kıyaslamak en kolayı:
+    // (Aşağıdaki logic handleSave'den kopyalandı)
+    let currentExtraJson = null;
+
+    if (isKum) {
+      if (routes.length > 1) {
+        const limitRoutes = routes.slice(1);
+        currentExtraJson = JSON.stringify(
+          limitRoutes.map((r, idx) => ({
+            offerNo: idx + 2,
             loading: r.loadLocation,
             unloading: r.unloadLocation,
             cashPerTon: toDecimalOrNull(r.cashPerTon) ?? 0,
             material: r.material,
           }))
-        )
-      : offers.length > 2
-        ? JSON.stringify(
-            offers.slice(2).map((o, idx) => ({
-              offerNo: idx + 3,
+        );
+      }
+    } else {
+      if (offers.length > 1) {
+        const limitOffers = offers.slice(1);
+        currentExtraJson = JSON.stringify(
+          limitOffers.map((o, idx) => ({
+            offerNo: idx + 2,
+            dumpLocation: o.dumpLocation,
+            cash: toDecimalOrNull(o.cash) ?? 0,
+            fuel: toDecimalOrNull(o.fuel) ?? 0,
+            name: o.dumpLocation
+          }))
+        );
+      }
+    }
+
+    // Null check
+    const initialExtra = initialJob.extraOffersJson || null;
+    // JSON string comparison (basic)
+    if (currentExtraJson !== initialExtra) {
+      // Stringler eşit değilse, içerik farklı olabilir.
+      // Ancak JSON.stringify key order garantisi vermez ama React Native JS engine'de genelde insertion order korunur.
+      // Şimdilik true döndür, çok kritik değil.
+      return true;
+    }
+
+    return false; // Hiçbir şey değişmedi
+  }, [
+    siteName, provinceCode, districtName, locationUrl, description, phones,
+    fuelStock, startTime, endTime, jobCategory, offers, routes, initialJob
+  ]);
+
+
+  /* ================= HANDLERS ================= */
+
+  const handleSave = async () => {
+    if (!companyId) {
+      Alert.alert("Uyarı", "Firma bilgisi alınamadı. Lütfen tekrar giriş yapın.");
+      return;
+    }
+
+    try {
+      // 1. Telefonları birleştir
+      const contactPhonesString = phones.filter(p => p.trim() !== '').join(', ');
+
+      const isKum = jobCategory === 'KUM_MICIR';
+
+      // 2. ExtraOffersJson ve Offer1/2 Mantığı
+      let extraOffersJson: string | null = null;
+      let offer1Name: string | null = null;
+      let offer1Cash: number | null = null;
+      let offer1Fuel: number | null = null;
+
+      // Offer2 Alanlarını boş geçiyoruz, hepsi JSON'a
+      const offer2Name: string | null = null;
+      const offer2Cash: number | null = null;
+      const offer2Fuel: number | null = null;
+
+      if (isKum) {
+        if (routes.length > 0) {
+          const r1 = routes[0];
+          offer1Name = `${r1.loadLocation} - ${r1.unloadLocation}`;
+          offer1Cash = toDecimalOrNull(r1.cashPerTon);
+          // Mıcırda yakıt yok
+
+          if (routes.length > 1) {
+            const limitRoutes = routes.slice(1);
+            extraOffersJson = JSON.stringify(
+              limitRoutes.map((r, idx) => ({
+                offerNo: idx + 2,
+                loading: r.loadLocation,
+                unloading: r.unloadLocation,
+                cashPerTon: toDecimalOrNull(r.cashPerTon) ?? 0,
+                material: r.material,
+              }))
+            );
+          }
+        }
+
+      } else {
+        // HAFRIYAT
+        if (offers.length > 0) {
+          const o1 = offers[0];
+          offer1Name = o1.dumpLocation;
+          offer1Cash = toDecimalOrNull(o1.cash);
+          offer1Fuel = toDecimalOrNull(o1.fuel);
+        }
+
+        if (offers.length > 1) {
+          const limitOffers = offers.slice(1);
+          extraOffersJson = JSON.stringify(
+            limitOffers.map((o, idx) => ({
+              offerNo: idx + 2,
               dumpLocation: o.dumpLocation,
               cash: toDecimalOrNull(o.cash) ?? 0,
               fuel: toDecimalOrNull(o.fuel) ?? 0,
+              name: o.dumpLocation
             }))
-          )
-        : null;
+          );
+        }
+      }
 
-    return {
-      CompanyId: companyId,                // Guid
-      Name: siteName,                      // string
-      ProvinceCode: provinceCode ?? 0,
-      DistrictName: districtName,           // string
-      LocationUrl: locationUrl,            // string
-      ContactPhone: phones ?? '',       // string
-      ContactPhones: phones?.length,               // string[]
-      Description: description,            // string
+      const hasCash = isKum
+        ? routes.some(r => (toDecimalOrNull(r.cashPerTon) ?? 0) > 0)
+        : offers.some(o => (toDecimalOrNull(o.cash) ?? 0) > 0);
 
-      JobType: isKum ? 1 : 0,              // int (0/1)
+      const hasFuel = isKum
+        ? false
+        : offers.some(o => (toDecimalOrNull(o.fuel) ?? 0) > 0);
 
-      Offer1Name: !isKum ? (o1?.dumpLocation ?? null) : null, // string?
-      Offer1Cash: !isKum ? (toDecimalOrNull(o1?.cash ?? '') ?? 0) : null, // decimal?
-      Offer1Fuel: !isKum ? (toDecimalOrNull(o1?.fuel ?? '') ?? 0) : null, // decimal?
+      // FULL PAYLOAD (Curl Example uyumlu)
+      const payload = {
+        companyId: companyId, // Curl'de küçük harf, serviste createJob için PascalCase kullanmıştık ama PUT için küçük olabilir. User curl'ü küçük harf CompanyId.
+        // DİKKAT: Create işleminde CompanyId (Pascal) göndermiştik. 
+        // User'ın attığı curl örneğinde "companyId" var. 
+        // C# backend genelde case-insensitive olabilir ama biz user örneğine uyalım.
+        // Ancak Create de Pascal idi. Hepsini Pascal yapıp, curl'deki companyId'yi de Pascal yapmak daha güvenli olabilir mi?
+        // User "servisin detaylarını paylaşıyorum" diyerek JSON attı. Orada camelCase var.
+        // Create ile Update farklı naming convention kullanıyor olabilir mi?
+        // createJobSite -> CompanyId demişim.
+        // Şimdi update için camelCase kullanalım.
+        name: siteName,
+        jobType: 0,
+        provinceCode: provinceCode ?? 0,
+        districtName: districtName,
+        locationUrl: locationUrl,
+        description: description,
+        contactPhone: contactPhonesString,
+        fuelStock: toIntOr0(fuelStock),
 
-      Offer2Name: !isKum ? (o2?.dumpLocation ?? null) : null,
-      Offer2Cash: !isKum ? (toDecimalOrNull(o2?.cash ?? '') ?? 0) : null,
-      Offer2Fuel: !isKum ? (toDecimalOrNull(o2?.fuel ?? '') ?? 0) : null,
+        offer1Name: offer1Name,
+        offer1Cash: offer1Cash ?? 0,
+        offer1Fuel: offer1Fuel ?? 0,
 
-      ExtraOffersJson: extraOffersJson,    // string?
+        offer2Name: offer2Name,
+        offer2Cash: offer2Cash ?? 0,
+        offer2Fuel: offer2Fuel ?? 0,
 
-      HasCash: hasCash,                    // bool
-      HasFuel: hasFuel,                    // bool
-      HasSand: isKum,                      // bool (kum/mıcır = true)
+        extraOffersJson: extraOffersJson,
 
-      FuelStock: toIntOr0(fuelStock),      // int
-      FuelLiters: null as number | null,   // decimal?
-      SandFuelLiters: null as number | null, // decimal?
+        hasFuel: hasFuel,
+        fuelLiters: 0, // Curl 0
 
-      LoadingStartTime: startTime,         // string
-      LoadingEndTime: endTime,             // string
+        hasSand: isKum,
+        sandFuelLiters: 0, // Curl 0
 
-      CashAmount: null as number | null,   // decimal? (sende backend'de null görünüyor)
-      SandFuelLitersAmount: null as number | null, // güvenli dursun
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobCategory, siteName, provinceCode, districtName, locationUrl, phones, description, offers, routes, startTime, endTime, fuelStock]);
+        hasCash: hasCash,
+        cashAmount: 0, // Curl 0
 
-  const handleSave = () => {
-    console.log('📦 CREATE JOB REQUEST', JSON.stringify(request, null, 2));
+        loadingStartTime: startTime,
+        loadingEndTime: endTime,
 
-    // burada servise gideceksin:
-    // await createJobSite(token, request);
-    // onClose();
+        isActive: initialJob ? initialJob.isActive : true // Mevcut durumu
+      };
+
+      console.log('🚀 Sending Payload:', JSON.stringify(payload, null, 2));
+
+      if (token) {
+        if (initialJob) {
+          // UPDATE
+          await updateJobSite(token, initialJob.id, payload);
+          Alert.alert("Güncellendi", "İş ilanı başarıyla güncellendi.", [{ text: "Tamam", onPress: () => onClose(true) }]);
+        } else {
+          // CREATE 
+          // Create servisi PascalCase bekliyor olabilir mi? Daha önce CompanyId gitmişti.
+          // Yeni bir obje createPayload yapalım veya serviste düzeltelim.
+          // Şimdilik Create'i bozmuyorum, Update için camelCase payload kullanıyorum.
+
+          // Create için PascalCase Keyleri
+          const createPayload = {
+            CompanyId: companyId,
+            Name: siteName,
+            ProvinceCode: provinceCode ?? 0,
+            DistrictName: districtName,
+            LocationUrl: locationUrl,
+            ContactPhone: contactPhonesString,
+            Description: description,
+            JobType: 0,
+            Offer1Name: offer1Name,
+            Offer1Cash: offer1Cash ?? 0,
+            Offer1Fuel: offer1Fuel ?? 0,
+            Offer2Name: null,
+            Offer2Cash: null,
+            Offer2Fuel: null,
+            ExtraOffersJson: extraOffersJson,
+            HasCash: hasCash,
+            HasFuel: hasFuel,
+            HasSand: isKum,
+            FuelStock: toIntOr0(fuelStock),
+            FuelLiters: null,
+            SandFuelLiters: null,
+            LoadingStartTime: startTime,
+            LoadingEndTime: endTime,
+            CashAmount: null
+          };
+
+          await createJobSite(token, createPayload);
+          Alert.alert("Başarılı", "İş ilanı başarıyla oluşturuldu.", [{ text: "Tamam", onPress: () => onClose(true) }]);
+        }
+      } else {
+        console.warn('Token missing');
+        Alert.alert("Hata", "Oturum süreniz dolmuş olabilir. Lütfen tekrar giriş yapın.");
+      }
+
+    } catch (error) {
+      console.error('Job save failed', error);
+      Alert.alert("Hata", "İş kaydedilirken bir sorun oluştu.");
+    }
   };
 
   /* ================= RENDER ================= */
@@ -239,10 +533,10 @@ export default function NewJobModal({ onClose }: NewJobModalProps) {
     <View style={styles.wrapper}>
       {/* HEADER */}
       <View style={[styles.header, { paddingTop: insets.top }]}>
-        <TouchableOpacity onPress={onClose} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => onClose()} style={styles.backBtn}>
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Yeni İş Kur</Text>
+        <Text style={styles.headerTitle}>{initialJob ? 'İşi Düzenle' : 'Yeni İş Kur'}</Text>
         <View style={{ width: 24 }} />
       </View>
 
@@ -279,59 +573,59 @@ export default function NewJobModal({ onClose }: NewJobModalProps) {
             onChangeText={setSiteName}
           />
 
-<Text style={styles.label}>İl *</Text>
+          <Text style={styles.label}>İl *</Text>
 
-<TouchableOpacity
-  style={styles.input}
-  onPress={() =>
-    ActionSheetIOS.showActionSheetWithOptions(
-      {
-        options: [...CITIES.map(c => c.label), 'İptal'],
-        cancelButtonIndex: CITIES.length,
-      },
-      index => {
-        if (index < CITIES.length) {
-          setProvinceCode(CITIES[index].value);
-          setDistrictName('');
-        }
-      }
-    )
-  }
->
-  <Text style={{ color: provinceCode ? '#111' : '#8E8E93' }}>
-    {provinceCode
-      ? CITIES.find(c => c.value === provinceCode)?.label
-      : 'İl seçin'}
-  </Text>
-</TouchableOpacity>
+          <TouchableOpacity
+            style={styles.input}
+            onPress={() =>
+              ActionSheetIOS.showActionSheetWithOptions(
+                {
+                  options: [...CITIES.map(c => c.label), 'İptal'],
+                  cancelButtonIndex: CITIES.length,
+                },
+                index => {
+                  if (index < CITIES.length) {
+                    setProvinceCode(CITIES[index].value);
+                    setDistrictName('');
+                  }
+                }
+              )
+            }
+          >
+            <Text style={{ color: provinceCode ? '#111' : '#8E8E93' }}>
+              {provinceCode
+                ? CITIES.find(c => c.value === provinceCode)?.label
+                : 'İl seçin'}
+            </Text>
+          </TouchableOpacity>
 
 
-<Text style={styles.label}>İlçe *</Text>
+          <Text style={styles.label}>İlçe *</Text>
 
-<TouchableOpacity
-  style={[
-    styles.input,
-    !provinceCode && { opacity: 0.5 },
-  ]}
-  disabled={!provinceCode}
-  onPress={() =>
-    ActionSheetIOS.showActionSheetWithOptions(
-      {
-        options: [...districts.map(d => d.label), 'İptal'],
-        cancelButtonIndex: districts.length,
-      },
-      index => {
-        if (index < districts.length) {
-          setDistrictName(districts[index].value);
-        }
-      }
-    )
-  }
->
-  <Text style={{ color: districtName ? '#111' : '#8E8E93' }}>
-    {districtName || 'İlçe seçin'}
-  </Text>
-</TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.input,
+              !provinceCode && { opacity: 0.5 },
+            ]}
+            disabled={!provinceCode}
+            onPress={() =>
+              ActionSheetIOS.showActionSheetWithOptions(
+                {
+                  options: [...districts.map(d => d.label), 'İptal'],
+                  cancelButtonIndex: districts.length,
+                },
+                index => {
+                  if (index < districts.length) {
+                    setDistrictName(districts[index].value);
+                  }
+                }
+              )
+            }
+          >
+            <Text style={{ color: districtName ? '#111' : '#8E8E93' }}>
+              {districtName || 'İlçe seçin'}
+            </Text>
+          </TouchableOpacity>
 
 
           <AppInput
@@ -512,11 +806,15 @@ export default function NewJobModal({ onClose }: NewJobModalProps) {
 
       {/* FOOTER */}
       <View style={styles.footer}>
-        <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
-          <Text>İptal</Text>
+        <TouchableOpacity style={styles.cancelBtn} onPress={() => onClose()}>
+          <Text>Vazgeç</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-          <Text style={{ fontWeight: '800' }}>Kaydet</Text>
+        <TouchableOpacity
+          style={[styles.saveBtn, !isDirty && { backgroundColor: '#ccc' }]}
+          onPress={handleSave}
+          disabled={!isDirty}
+        >
+          <Text style={{ fontWeight: '800' }}>{initialJob ? 'Güncelle' : 'Kaydet'}</Text>
         </TouchableOpacity>
       </View>
     </View>
