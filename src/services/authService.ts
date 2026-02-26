@@ -21,7 +21,7 @@ const handleApiError = (error: unknown, context: string) => {
 export const login = async (phone: string) => {
   try {
     const res = await api.post('/Auth/login', {
-      phoneNumber: '+9'+phone,
+      phoneNumber: '+9' + phone,
     });
 
     console.log('✅ LOGIN RESPONSE:', res.data);
@@ -35,7 +35,7 @@ export const login = async (phone: string) => {
 export const verifySms = async (phone: string, code: string) => {
   try {
     const res = await api.post('/Auth/verify-sms', {
-      phoneNumber: '+9'+ phone,
+      phoneNumber: '+9' + phone,
       verificationCode: code
     });
 
@@ -48,7 +48,7 @@ export const verifySms = async (phone: string, code: string) => {
 /* REGISTER – YENİ KAYIT */
 export const register = async (payload: {
   phoneNumber: string;
-  userType: number; // 0 supplier, 1 driver
+  userType: number; // 0 driver, 1 supplier
   firstName?: string;
   lastName?: string;
   companyName?: string;

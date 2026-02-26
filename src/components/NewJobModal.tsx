@@ -116,14 +116,11 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
       setStartTime(initialJob.loadingStartTime || '');
       setEndTime(initialJob.loadingEndTime || '');
 
-      const isKum = initialJob.hasSand; // Backend'den gelen boolean
+      // 🛠 Job Type Logic
+      const isKum = initialJob.jobType === 1; // 1: Kum/Mıcır, 0: Hafriyat
       setJobCategory(isKum ? 'KUM_MICIR' : 'HAFRIYAT');
 
       // Offer/Route Parsing
-      // NOT: Backend offer1Name, offer1Cash vs. ve extraOffersJson olarak dönüyor olmalı.
-      // Eğer dönmüyorsa MyJobs içinde maplerken bu detayları kaybediyor muyuz? kontrol etmeliyiz.
-      // initialJob burada FULL DATA olmalı.
-
       if (isKum) {
         // KUM MICIR
         const newRoutes: Route[] = [];
@@ -134,7 +131,7 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
             loadLocation: parts[0] || '',
             unloadLocation: parts[1] || '',
             cashPerTon: String(initialJob.offer1Cash || ''),
-            material: '', // offer1 için material field yoktu ? extraOffersJson da var.
+            material: '',
           });
         }
         // Diğer rotalar
@@ -437,9 +434,9 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
         // User "servisin detaylarını paylaşıyorum" diyerek JSON attı. Orada camelCase var.
         // Create ile Update farklı naming convention kullanıyor olabilir mi?
         // createJobSite -> CompanyId demişim.
-        // Şimdi update için camelCase kullanalım.
+        // Ancak update için camelCase kullanalım.
         name: siteName,
-        jobType: 0,
+        jobType: isKum ? 1 : 0,
         provinceCode: provinceCode ?? 0,
         districtName: districtName,
         locationUrl: locationUrl,
@@ -494,7 +491,7 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
             LocationUrl: locationUrl,
             ContactPhone: contactPhonesString,
             Description: description,
-            JobType: 0,
+            JobType: isKum ? 1 : 0,
             Offer1Name: offer1Name,
             Offer1Cash: offer1Cash ?? 0,
             Offer1Fuel: offer1Fuel ?? 0,

@@ -1,34 +1,96 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, ActivityIndicator, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
+import { useAppSelector } from '../../hooks';
+import { getGroupMessages, sendMessage as sendMsgComp } from '../../services/chatService';
 
 const YELLOW = '#FFD500';
-
-const initialMessages = [
-  { id: '1', text: 'Yükleme başladı', mine: false },
-  { id: '2', text: 'Tamamdır, haber bekliyorum', mine: true },
-];
 
 export default function CompanyChat() {
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
-  const { company } = route.params;
+  const { group, company } = route.params;
+  const title = group?.name || company?.name;
+  const groupId = group?.id || company?.id;
 
-  const [messages, setMessages] = useState(initialMessages);
+  const [messages, setMessages] = useState<any[]>([]);
   const [text, setText] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const token = useAppSelector(state => state.auth.token);
 
-  const sendMessage = () => {
-    if (!text.trim()) return;
+  useEffect(() => {
+    fetchMessages();
+  }, []);
 
-    setMessages(prev => [...prev, { id: Date.now().toString(), text, mine: true }]);
-    setText('');
+  const fetchMessages = async () => {
+    if (!token || !groupId) return;
+    setLoading(true);
+    try {
+      const res = await getGroupMessages(token, groupId);
+      if (res && res.data && res.data.messages) {
+        setMessages(res.data.messages.reverse());
+      }
+    } catch (error) {
+      console.log('Error fetching messages', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const renderItem = ({ item }: any) => (
-    <View style={[styles.bubble, item.mine ? styles.myBubble : styles.theirBubble]}>
-      <Text style={styles.bubbleText}>{item.text}</Text>
-    </View>
-  );
+  const handleSendMessage = async () => {
+    if (!text.trim()) return;
+
+    const content = text.trim();
+    setText('');
+
+    // Optimistik update: Hemen listeye ekle (Listenin sonuna ekliyoruz çünkü inverted değil ama sıralama eski->yeni)
+    // Bekle, eğer listeyi reverse() ettiysek (Eski -> Yeni), o zaman sona eklemeliyiz.
+    // FlatList inverted OLMADIĞI için, en aşağıya scroll etmesi lazım veya biz sona ekleriz.
+    // Kullanıcı deneyimi: Mesajlar yukarıdan aşağı akar. En son mesaj en alttadır.
+    // Bu durumda array: [Eski, ..., Yeni] olmalı.
+    // sendMessage ile sona ekleriz: [...prev, newMessage]
+
+    const tempId = Date.now().toString();
+    const newMessage = {
+      id: tempId,
+      content,
+      isOwnMessage: true,
+      sentAt: new Date().toISOString()
+    };
+
+    setMessages(prev => [newMessage, ...prev]);
+    setSending(true);
+
+    try {
+      if (!token) throw new Error('Oturum açık değil');
+      await sendMsgComp(token, groupId, content);
+    } catch (error) {
+      Alert.alert('Hata', 'Mesaj gönderilemedi, tekrar deneyiniz.');
+      // Hata durumunda geri al
+      setMessages(prev => prev.filter(m => m.id !== tempId));
+      setText(content);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const renderItem = ({ item }: any) => {
+    const isMyMessage = item.isOwnMessage;
+    return (
+      <View style={[styles.bubbleContainer, isMyMessage ? styles.myContainer : styles.theirContainer]}>
+        {!isMyMessage && item.senderName && (
+          <Text style={styles.senderName}>{item.senderName}</Text>
+        )}
+        <View style={[styles.bubble, isMyMessage ? styles.myBubble : styles.theirBubble]}>
+          <Text style={styles.bubbleText}>{item.content}</Text>
+          <Text style={styles.timeText}>
+            {new Date(item.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </Text>
+        </View>
+      </View>
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -39,21 +101,34 @@ export default function CompanyChat() {
         </TouchableOpacity>
 
         <Text style={styles.headerTitle} numberOfLines={1}>
-          {company.name}
+          {title}
         </Text>
 
         {/* sağ taraf boş kalsın diye */}
         <View style={{ width: 32 }} />
       </View>
 
-      <FlatList data={messages} keyExtractor={item => item.id} renderItem={renderItem} contentContainerStyle={{ paddingVertical: 10 }} />
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
+        <FlatList
+          data={messages}
+          keyExtractor={item => item.id}
+          renderItem={renderItem}
+          contentContainerStyle={{ paddingVertical: 10 }}
+          inverted
+          keyboardShouldPersistTaps="handled"
+        />
 
-      <View style={styles.inputRow}>
-        <TextInput value={text} onChangeText={setText} placeholder="Mesaj yaz..." style={styles.input} />
-        <TouchableOpacity style={styles.sendBtn} onPress={sendMessage}>
-          <Text style={{ fontWeight: '700' }}>Gönder</Text>
-        </TouchableOpacity>
-      </View>
+        <View style={styles.inputRow}>
+          <TextInput value={text} onChangeText={setText} placeholder="Mesaj yaz..." style={styles.input} />
+          <TouchableOpacity style={styles.sendBtn} onPress={handleSendMessage} disabled={sending}>
+            {sending ? <ActivityIndicator size="small" color="#000" /> : <Text style={{ fontWeight: '700' }}>Gönder</Text>}
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -69,23 +144,44 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: '#eee',
   },
-  bubble: {
-    maxWidth: '75%',
-    padding: 10,
-    borderRadius: 12,
+  bubbleContainer: {
+    maxWidth: '80%',
     marginVertical: 4,
     marginHorizontal: 12,
   },
-  myBubble: {
+  myContainer: {
     alignSelf: 'flex-end',
+    alignItems: 'flex-end',
+  },
+  theirContainer: {
+    alignSelf: 'flex-start',
+    alignItems: 'flex-start',
+  },
+  senderName: {
+    fontSize: 11,
+    color: '#666',
+    marginLeft: 4,
+    marginBottom: 2,
+  },
+  bubble: {
+    padding: 10,
+    borderRadius: 12,
+  },
+  myBubble: {
     backgroundColor: YELLOW,
   },
   theirBubble: {
-    alignSelf: 'flex-start',
     backgroundColor: '#fff',
   },
   bubbleText: {
     fontSize: 13,
+    color: '#000',
+  },
+  timeText: {
+    fontSize: 10,
+    color: '#555',
+    alignSelf: 'flex-end',
+    marginTop: 4,
   },
   inputRow: {
     flexDirection: 'row',

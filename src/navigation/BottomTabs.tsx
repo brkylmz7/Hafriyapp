@@ -15,6 +15,7 @@ import SupplierAllJobs from '../screens/supplier/AllJobs';
 import MyJobs from '../screens/supplier/MyJobs';
 import SupplierStack from './SupplierStack';
 import DriverStack from './DriverStack';
+import MyJobsStack from './MyJobsStack';
 
 const Tab = createBottomTabNavigator();
 
@@ -191,7 +192,7 @@ export default function BottomTabs() {
           {/* SUPPLIER MY JOBS */}
           <Tab.Screen
             name="MyJobs"
-            component={MyJobs}
+            component={MyJobsStack}
             options={{
               title: 'İşlerim',
               tabBarIcon: ({ focused }) => (

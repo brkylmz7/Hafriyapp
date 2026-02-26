@@ -1,0 +1,60 @@
+import axios from 'axios';
+import { api } from './api';
+
+export const getChatGroups = async (token: string, provinceCode: number, page: number = 1, pageSize: number = 20) => {
+    try {
+        const response = await api.get(`/ChatGroup`, {
+            params: {
+                provinceCode,
+                page,
+                pageSize,
+            },
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+        });
+        return response.data;
+    } catch (error) {
+        console.error('Error fetching chat groups:', error);
+        throw error;
+    }
+};
+
+export const createChatGroup = async (token: string, payload: any) => {
+    try {
+        const response = await api.post(`/ChatGroup`, payload, {
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+        });
+        return response.data;
+    } catch (error) {
+        console.error('Error creating chat group:', error);
+        throw error;
+    }
+};
+
+export const getGroupMessages = async (token: string, groupId: string, page: number = 1, pageSize: number = 50) => {
+    try {
+        const response = await api.get(`/ChatGroup/${groupId}/messages`, {
+            params: { page, pageSize },
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        return response.data;
+    } catch (error) {
+        console.error('Error fetching messages:', error);
+        throw error;
+    }
+};
+
+export const sendMessage = async (token: string, groupId: string, content: string) => {
+    try {
+        const response = await api.post(`/ChatGroup/${groupId}/messages`, { content }, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        return response.data;
+    } catch (error) {
+        console.error('Error sending message:', error);
+        throw error;
+    }
+};

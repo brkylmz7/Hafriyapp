@@ -48,3 +48,13 @@ export const deleteJobSite = async (token: string, id: string) => {
   });
   return res.data;
 };
+
+export const getJobHauls = async (token: string, jobSiteId: string) => {
+  const res = await axios.get(`${API_URL}/Haul/jobsite/${jobSiteId}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      accept: '*/*',
+    },
+  });
+  return res.data;
+};

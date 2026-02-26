@@ -13,48 +13,7 @@ const LIGHT_YELLOW = '#FFF2B3';
 const GRAY = '#F4F4F4';
 const DARK = '#222';
 
-const jobs = [
-  {
-    id: '1',
-    company: 'KAYA HAFRİYAT',
-    site: 'GÜNEŞLİ ŞANTİYESİ',
-    logo: require('../../../assets/icons/excavator.png'),
-    dumps: [
-      { place: 'CEBECİ', cash: '2000₺', fuel: '40lt' },
-      { place: 'BOLLUCA', cash: '4000₺', fuel: '65lt' },
-      { place: 'AL-GÖTÜR', cash: '7000₺', fuel: '75lt' },
-    ],
-    status: 'Yükleme Devam Ediyor',
-    statusColor: '#C8E6C9',
-  },
-  {
-    id: '2',
-    company: 'YILMAZ HAFRİYAT',
-    site: 'ESENLER ŞANTİYESİ',
-    logo: require('../../../assets/logokarakalem.png'),
-    dumps: [
-      { place: 'CEBECİ', cash: '2000₺', fuel: '40lt' },
-      { place: 'BOLLUCA', cash: '4000₺', fuel: '65lt' },
-    ],
-    status: 'Gece 10’a kadar yükleme devam edecek',
-    statusColor: LIGHT_YELLOW,
-  },
-  {
-    id: '3',
-    company: 'KAYA HAFRİYAT',
-    site: 'GÜNEŞLİ ŞANTİYESİ',
-    logo: require('../../../assets/icons/excavator.png'),
-    dumps: [
-      { place: 'CEBECİ', cash: '2000₺', fuel: '40lt' },
-      { place: 'BOLLUCA', cash: '4000₺', fuel: '65lt' },
-      { place: 'AL-GÖTÜR', cash: '7000₺', fuel: '75lt' },
-    ],
-    status: 'Yükleme Devam Ediyor',
-    statusColor: '#C8E6C9',
-  },
-];
-
-const ActionItem = ({ icon, label, onPress }: { icon: any; label: string; onPress?: () => void;  }) => (
+const ActionItem = ({ icon, label, onPress }: { icon: any; label: string; onPress?: () => void; }) => (
   <TouchableOpacity style={styles.actionItem} onPress={onPress} activeOpacity={0.7}>
     <Image style={{ width: 20, height: 20 }} source={icon} />
     <Text style={styles.actionLabel}>{label}</Text>
@@ -82,7 +41,6 @@ const JobDetailModal = ({
 
   const handleCallPress = (contactPhone?: string) => {
     if (!contactPhone) return;
-    console.log('object')
     const list = contactPhone
       .split(',')
       .map(p => p.trim())
@@ -144,7 +102,9 @@ const JobDetailModal = ({
 
               <View style={{ flex: 1 }}>
                 <Text style={modalStyles.label}>SAATLER</Text>
-                <Text style={modalStyles.value}>-- : --</Text>
+                <Text style={modalStyles.value}>
+                  {job.loadingStartTime || '??'} - {job.loadingEndTime || '??'}
+                </Text>
               </View>
             </View>
 
@@ -208,23 +168,23 @@ const AllJobs = () => {
   /** 🔍 Firma + Şantiye Araması */
   const filteredJobs = useMemo(() => {
     const q = search.trim().toLowerCase();
-    console.log('object,jobs',jobs)
+    console.log('object,jobs', jobs)
     if (!q) return jobs;
-  
+
     return jobs.filter(
       item =>
         item.company?.toLowerCase().includes(q) ||
         item.site?.toLowerCase().includes(q),
     );
   }, [search, jobs]); // ✅
-  
+
   useEffect(() => {
     fetchJobs();
   }, [selectedCity]);
 
   const openCityPicker = () => {
     const options = ['İptal', ...CITIES.map(c => c.label)];
-  
+
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         {
@@ -233,7 +193,7 @@ const AllJobs = () => {
         },
         buttonIndex => {
           if (buttonIndex === 0) return;
-  
+
           const city = CITIES[buttonIndex - 1];
           setSelectedCity(city.value);
         },
@@ -252,55 +212,66 @@ const AllJobs = () => {
   };
   const handleCallPress1 = (phone?: string) => {
     console.log('123123123123')
-  if (!phone) return;
-  const phones = phone
-    .split(',')
-    .map(p => p.trim())
-    .filter(Boolean);
+    if (!phone) return;
+    const phones = phone
+      .split(',')
+      .map(p => p.trim())
+      .filter(Boolean);
 
-  if (phones.length === 0) return;
-  console.log('phone',phones)
-  // ✅ TEK NUMARA → DİREKT ARA
-  if (phones.length === 1) {
-    Linking.openURL(`tel:${phones[0]}`);
-    return;
-  }
+    if (phones.length === 0) return;
+    console.log('phone', phones)
+    // ✅ TEK NUMARA → DİREKT ARA
+    if (phones.length === 1) {
+      Linking.openURL(`tel:${phones[0]}`);
+      return;
+    }
 
-  // ✅ BİRDEN FAZLA NUMARA
-  if (Platform.OS === 'ios') {
-    ActionSheetIOS.showActionSheetWithOptions(
-      {
-        title: 'Numara Seç',
-        options: ['İptal', ...phones],
-        cancelButtonIndex: 0,
-      },
-      index => {
-        if (index > 0) {
-          Linking.openURL(`tel:${phones[index - 1]}`);
-        }
-      },
-    );
-  } else {
-    Alert.alert(
-      'Numara Seç',
-      '',
-      phones.map(phone => ({
-        text: phone,
-        onPress: () => Linking.openURL(`tel:${phone}`),
-      })),
-      { cancelable: true },
-    );
-  }
-};
+    // ✅ BİRDEN FAZLA NUMARA
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: 'Numara Seç',
+          options: ['İptal', ...phones],
+          cancelButtonIndex: 0,
+        },
+        index => {
+          if (index > 0) {
+            Linking.openURL(`tel:${phones[index - 1]}`);
+          }
+        },
+      );
+    } else {
+      Alert.alert(
+        'Numara Seç',
+        '',
+        phones.map(phone => ({
+          text: phone,
+          onPress: () => Linking.openURL(`tel:${phone}`),
+        })),
+        { cancelable: true },
+      );
+    }
+  };
+
+  const handleLocationPress = (url?: string) => {
+    if (!url) {
+      Alert.alert('Hata', 'Konum bilgisi bulunamadı.');
+      return;
+    }
+    Linking.openURL(url).catch(err => {
+      console.error('An error occurred', err);
+      Alert.alert('Hata', 'Harita açılamadı.');
+    });
+  };
+
   const fetchJobs = async () => {
     if (!token) return;
-  
+
     setLoading(true);
     try {
       const response = await getMarketJobs(token, selectedCity);
       const mapped = response.map(mapJobFromApi);
-      console.log('response',response)
-      console.log('mapped',mapped)
+      console.log('response', response)
       setJobs(mapped);
     } catch (e) {
       console.log('Market jobs error', e);
@@ -330,7 +301,11 @@ const AllJobs = () => {
 
       {/* ACTIONS */}
       <View style={styles.actionRow}>
-        <ActionItem icon={require('../../../assets/icons/location.png')} label="Konum" />
+        <ActionItem
+          icon={require('../../../assets/icons/location.png')}
+          label="Konum"
+          onPress={() => handleLocationPress(item.locationUrl)}
+        />
         <ActionItem
           icon={require('../../../assets/icons/phone-call.png')}
           label="Arama"
@@ -364,7 +339,7 @@ const AllJobs = () => {
   );
 
   return (
-    
+
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <JobDetailModal
         visible={detailVisible}
@@ -403,25 +378,25 @@ const AllJobs = () => {
               onChangeText={setSearch}
               style={styles.searchInput}
             />
-        
+
             {/* CITY DROPDOWN */}
             <View>
-            <TouchableOpacity
-  style={styles.citySelect}
-  onPress={openCityPicker}
-  activeOpacity={0.8}
->
-  <Text style={styles.cityText}>
-    {selectedCity
-      ? CITIES.find(c => c.value === selectedCity)?.label
-      : 'İl'}
-  </Text>
-  <Image
-    source={require('../../../assets/icons/down-arrow.png')}
-    style={{ width: 14, height: 14 }}
-  />
-</TouchableOpacity>
-        
+              <TouchableOpacity
+                style={styles.citySelect}
+                onPress={openCityPicker}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.cityText}>
+                  {selectedCity
+                    ? CITIES.find(c => c.value === selectedCity)?.label
+                    : 'İl'}
+                </Text>
+                <Image
+                  source={require('../../../assets/icons/down-arrow.png')}
+                  style={{ width: 14, height: 14 }}
+                />
+              </TouchableOpacity>
+
               {cityOpen && (
                 <View style={styles.cityDropdown}>
                   <FlatList
@@ -445,7 +420,7 @@ const AllJobs = () => {
             </View>
           </View>
         }
-        
+
       />
     </SafeAreaView>
   );
@@ -469,7 +444,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 16,
     height: 48,
-    width:'60%',
+    width: '60%',
     fontSize: 14,
     shadowOffset: {
       width: 0,
@@ -595,13 +570,13 @@ const styles = StyleSheet.create({
     flex: 1, // 🔥 ekranın geri kalanını kaplar
   },
   searchRow: {
-    flexDirection:'row',
-    justifyContent:'space-between',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     gap: 10,
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  
+
   citySelect: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -610,20 +585,20 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 12,
     height: 48,
-    width:'60%',
+    width: '60%',
     shadowOffset: { width: 1, height: 3 },
     shadowColor: '#000',
     shadowOpacity: 0.15,
     shadowRadius: 6,
     elevation: 2,
   },
-  
+
   cityText: {
     fontSize: 13,
-    fontWeight:'500',
+    fontWeight: '500',
     color: DARK,
   },
-  
+
   cityDropdown: {
     position: 'absolute',
     top: 52,
@@ -633,23 +608,23 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     zIndex: 100,
     paddingVertical: 6,
-  
+
     shadowColor: '#000',
     shadowOpacity: 0.15,
     shadowRadius: 10,
     elevation: 8,
   },
-  
+
   cityItem: {
     paddingVertical: 10,
     paddingHorizontal: 14,
   },
-  
+
   cityItemText: {
     fontSize: 14,
     color: DARK,
   },
-  
+
 });
 const modalStyles = StyleSheet.create({
   overlay: {
@@ -745,12 +720,12 @@ const modalStyles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 8,
   },
-  
+
   offerText: {
     fontSize: 13,
     color: DARK,
   },
-  
+
   offerCash: {
     fontSize: 13,
     fontWeight: '700',
@@ -770,7 +745,7 @@ const modalStyles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: DARK,
-  }, 
+  },
   phoneIcon: {
     fontSize: 18,
   },

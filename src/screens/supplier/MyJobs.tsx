@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import axios from 'axios';
 
@@ -60,6 +61,7 @@ type JobUI = {
 };
 
 export default function MyJobs() {
+  const navigation = useNavigation<any>(); // Add navigation hook
   const token = useAppSelector(state => state.auth.token);
   const [jobs, setJobs] = useState<JobUI[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,6 +80,8 @@ export default function MyJobs() {
           accept: '*/*',
         },
       });
+
+      console.log('🚀 JobSite Data:', JSON.stringify(res.data, null, 2));
 
       const mapped: JobUI[] = res.data.map((item: any) => ({
         id: item.id,
@@ -156,8 +160,11 @@ export default function MyJobs() {
     <View style={styles.card}>
       <View style={{ flex: 1 }}>
         <Text style={styles.site}>{item.site}</Text>
+        <Text style={styles.jobType}>
+          {item.raw.jobType === 1 ? 'Kum & Mıcır' : 'Hafriyat Döküm'}
+        </Text>
 
-        <View style={{ marginTop: '5%' }}>
+        <View style={{ marginTop: '2%' }}>
           <Text style={styles.info}>Bugün atılan seferler: {item.today}</Text>
           <Text style={styles.info}>Toplam atılan seferler: {item.total}</Text>
           <Text style={styles.info}>Ödemesi yapılan: {item.paid}</Text>
@@ -177,7 +184,7 @@ export default function MyJobs() {
           </TouchableOpacity>
         )}
 
-        <TouchableOpacity style={styles.actionBtn}>
+        <TouchableOpacity style={styles.actionBtn} onPress={() => navigation.navigate('JobDetails', { job: item.raw })}>
           <Text>{item.isActive ? 'İşi Aç' : 'Pasif'}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionBtn} onPress={() => handleFinishJob(item.id)}>
@@ -261,6 +268,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginBottom: 8,
     color: '#111',
+  },
+
+  jobType: {
+    fontSize: 12,
+    color: '#F5A623',
+    fontWeight: '700',
+    marginBottom: 4,
   },
 
   info: {

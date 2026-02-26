@@ -1,86 +1,184 @@
-import React, { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, TextInput } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-
-const YELLOW = '#FFD500';
-
-const companies = [
-  {
-    id: '1',
-    name: 'ÖRNEK 1 HAFRİYAT',
-    message: 'Kamil: Esenler yüklememiz başladı',
-    time: '12:30',
-    logo: require('../../../assets/logokarakalem.png'),
-  },
-  {
-    id: '2',
-    name: 'ÖRNEK 2 HAFRİYAT',
-    message: 'Kadir: Yükleme devam ediyor.',
-    time: '11:20',
-    logo: require('../../../assets/icons/excavator.png'),
-  },
-  {
-    id: '3',
-    name: 'ÖRNEK 3 HAFRİYAT',
-    message: 'Kadir: Yükleme devam ediyor.',
-    time: '10:20',
-    logo: require('../../../assets/icons/excavator.png'),
-  },
-  {
-    id: '4',
-    name: 'ÖRNEK 4 HAFRİYAT',
-    message: 'Kadir: Yükleme devam ediyor.',
-    time: '10:20',
-    logo: require('../../../assets/logokarakalem.png'),
-  },
-  {
-    id: '5',
-    name: 'ÖRNEK 5 HAFRİYAT',
-    message: 'Kadir: Yükleme devam ediyor.',
-    time: '10:20',
-    logo: require('../../../assets/icons/excavator.png'),
-  },
-  {
-    id: '6',
-    name: 'ÖRNEK 6 HAFRİYAT',
-    message: 'Kadir: Yükleme devam ediyor.',
-    time: '10:20',
-    logo: require('../../../assets/logokarakalem.png'),
-  },
-  {
-    id: '7',
-    name: 'ÖRNEK 7 HAFRİYAT',
-    message: 'Kadir: Yükleme devam ediyor.',
-    time: '10:20',
-    logo: require('../../../assets/icons/excavator.png'),
-  },
-];
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { View, Text, StyleSheet, Image, TouchableOpacity, TextInput, Platform, ActionSheetIOS, Alert, Modal, ScrollView, ActivityIndicator, SectionList } from 'react-native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { CITIES } from '../../constants/cities';
+import { useAppSelector } from '../../hooks';
+import { getChatGroups, createChatGroup } from '../../services/chatService';
 
 export default function SupplierHome() {
   const navigation = useNavigation<any>();
   const [searchText, setSearchText] = useState('');
+  const [chatGroups, setChatGroups] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedCity, setSelectedCity] = useState<number>(340);
+  const token = useAppSelector(state => state.auth.token);
+  const user = useAppSelector(state => state.auth.user);
 
-  // 🔍 FİLTRELENMİŞ LİSTE
-  const filteredCompanies = useMemo(() => {
-    if (!searchText.trim()) return companies;
+  /* CREATE MODAL STATES */
+  const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [newGroupDesc, setNewGroupDesc] = useState('');
+  const [selectedProvinces, setSelectedProvinces] = useState<number[]>([]);
+  const [citySearch, setCitySearch] = useState('');
+  const [creating, setCreating] = useState(false);
 
-    const text = searchText.toLowerCase();
+  useFocusEffect(
+    useCallback(() => {
+      const showLoader = chatGroups.length === 0;
+      fetchGroups(showLoader);
+    }, [selectedCity, chatGroups.length])
+  );
 
-    return companies.filter(item => item.name.toLowerCase().includes(text) || item.message.toLowerCase().includes(text));
-  }, [searchText]);
+  const fetchGroups = async (showLoader: boolean = true) => {
+    if (!token) return;
+    if (showLoader) setLoading(true);
+    try {
+      const res = await getChatGroups(token, selectedCity);
+      if (res && res.data && res.data.groups) {
+        setChatGroups(res.data.groups);
+      }
+    } catch (error) {
+      console.log('Error fetching groups', error);
+    } finally {
+      if (showLoader) setLoading(false);
+    }
+  };
 
-  const renderItem = ({ item }: any) => (
-    <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('CompanyChat', { company: item })} activeOpacity={0.7}>
-      <Image source={item.logo} style={styles.avatar} />
+  const handleCreateGroup = async () => {
+    if (!newGroupName.trim()) {
+      Alert.alert('Hata', 'Lütfen grup adı giriniz.');
+      return;
+    }
+    if (!token) {
+      Alert.alert('Hata', 'Oturum açık değil.');
+      return;
+    }
+    if (selectedProvinces.length === 0) {
+      Alert.alert('Hata', 'Lütfen en az bir il seçiniz.');
+      return;
+    }
+
+    setCreating(true);
+    try {
+      const payload = {
+        name: newGroupName,
+        description: newGroupDesc,
+        provinceCode: selectedProvinces[0], // İlk seçileni ana il yapalım
+        provinceCodes: selectedProvinces,
+        isPublic: true,
+        allowMemberMessages: true,
+      };
+
+      await createChatGroup(token, payload);
+      Alert.alert('Başarılı', 'Grup oluşturuldu!');
+      setCreateModalVisible(false);
+      setNewGroupName('');
+      setNewGroupDesc('');
+      setSelectedProvinces([]);
+      fetchGroups(); // Listeyi güncelle
+    } catch (error) {
+      Alert.alert('Hata', 'Grup oluşturulurken bir hata oluştu.');
+      console.error(error);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const openCityPicker = () => {
+    const options = ['İptal', ...CITIES.map(c => c.label)];
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options,
+          cancelButtonIndex: 0,
+        },
+        buttonIndex => {
+          if (buttonIndex === 0) return;
+
+          const city = CITIES[buttonIndex - 1];
+          setSelectedCity(city.value);
+        },
+      );
+    } else {
+      Alert.alert(
+        'İl Seç',
+        undefined,
+        CITIES.map(city => ({
+          text: city.label,
+          onPress: () => setSelectedCity(city.value),
+        })),
+        { cancelable: true },
+      );
+    }
+  };
+
+  const toggleProvince = (code: number) => {
+    if (selectedProvinces.includes(code)) {
+      setSelectedProvinces(prev => prev.filter(c => c !== code));
+    } else {
+      setSelectedProvinces(prev => [...prev, code]);
+    }
+  };
+
+  // 🔍 SECTIONS
+  const sections = useMemo(() => {
+    let filtered = chatGroups;
+    const q = searchText.trim().toLowerCase();
+
+    if (q) {
+      filtered = chatGroups.filter(item =>
+        item.name.toLowerCase().includes(q) ||
+        (item.lastMessagePreview && item.lastMessagePreview.toLowerCase().includes(q))
+      );
+    }
+
+    const myGroups = filtered.filter(g => g.isMember);
+    const discoverGroups = filtered.filter(g => !g.isMember);
+
+    const result = [];
+    if (myGroups.length > 0) {
+      result.push({ title: `Gruplarım (${myGroups.length})`, data: myGroups });
+    }
+    if (discoverGroups.length > 0) {
+      result.push({ title: `Keşfet (${discoverGroups.length})`, data: discoverGroups });
+    }
+
+    return result;
+  }, [searchText, chatGroups]);
+
+  const filteredCitiesForSelect = useMemo(() => {
+    if (!citySearch.trim()) return CITIES;
+    return CITIES.filter(c => c.label.toLowerCase().includes(citySearch.toLowerCase()));
+  }, [citySearch]);
+
+  const renderItem = ({ item }: { item: any }) => (
+    <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('CompanyChat', { group: item })} activeOpacity={0.7}>
+      {/* Grupların logosu olmadığı için varsayılan bir logo kullanıyoruz */}
+      <View style={styles.iconContainer}>
+        <Image source={require('../../../assets/icons/city.png')} style={styles.icon} />
+      </View>
 
       <View style={styles.content}>
         <Text style={styles.name}>{item.name}</Text>
         <Text style={styles.message} numberOfLines={1}>
-          {item.message}
+          {item.lastMessageSenderName ? `${item.lastMessageSenderName}: ` : ''}{item.lastMessagePreview || 'Henüz mesaj yok'}
         </Text>
       </View>
 
-      <Text style={styles.time}>{item.time}</Text>
+      <View style={styles.rightContent}>
+        <Text style={styles.time}>
+          {item.lastMessageAt ? new Date(item.lastMessageAt).toLocaleDateString("tr-TR", { day: '2-digit', month: '2-digit' }) : ''}
+        </Text>
+
+        {item.isMember ? (
+          <View style={styles.memberBadge}>
+            <Text style={styles.memberBadgeText}>Üye</Text>
+          </View>
+        ) : (
+          <Text style={styles.memberCountText}>{item.memberCount || 0} üye</Text>
+        )}
+      </View>
     </TouchableOpacity>
   );
 
@@ -88,10 +186,116 @@ export default function SupplierHome() {
     <View style={styles.container}>
       <Text style={styles.title}>FİRMA SAYFALARI</Text>
 
-      {/* 🔍 ARAMA */}
-      <TextInput placeholder="Ara" value={searchText} onChangeText={setSearchText} style={styles.search} placeholderTextColor="#888" clearButtonMode="while-editing" />
+      <View style={styles.searchRow}>
+        {/* 🔍 ARAMA */}
+        <TextInput
+          placeholder="Ara"
+          value={searchText}
+          onChangeText={setSearchText}
+          style={styles.search}
+          placeholderTextColor="#888"
+          clearButtonMode="while-editing"
+        />
 
-      <FlatList data={filteredCompanies} keyExtractor={item => item.id} renderItem={renderItem} ItemSeparatorComponent={() => <View style={styles.divider} />} keyboardShouldPersistTaps="handled" ListEmptyComponent={<Text style={styles.emptyText}>Sonuç bulunamadı</Text>} />
+        {/* 🌍 İL SEÇİMİ */}
+        <TouchableOpacity style={styles.cityBtn} onPress={openCityPicker}>
+          <Text style={styles.cityText}>
+            {CITIES.find(c => c.value === selectedCity)?.label || 'İl Seç'}
+          </Text>
+          <Image
+            source={require('../../../assets/icons/down-arrow.png')}
+            style={{ width: 12, height: 12, marginLeft: 6, opacity: 0.6 }}
+          />
+        </TouchableOpacity>
+      </View>
+
+      {/* GRUP OLUŞTUR BUTONU */}
+      <TouchableOpacity style={styles.createGroupBtn} onPress={() => setCreateModalVisible(true)}>
+        <Text style={styles.createGroupText}>+ Grup Oluştur</Text>
+      </TouchableOpacity>
+
+      <SectionList
+        sections={sections}
+        keyExtractor={item => item.id}
+        renderItem={renderItem}
+        renderSectionHeader={({ section: { title } }) => (
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionHeaderText}>★ {title}</Text>
+          </View>
+        )}
+        ItemSeparatorComponent={() => <View style={styles.divider} />}
+        keyboardShouldPersistTaps="handled"
+        ListEmptyComponent={
+          !loading ? <Text style={styles.emptyText}>Bu ilde grup bulunamadı</Text> : null
+        }
+        refreshing={loading}
+        onRefresh={() => fetchGroups(true)}
+        stickySectionHeadersEnabled={false}
+      />
+
+      {/* CREATE GROUP MODAL */}
+      <Modal visible={createModalVisible} animationType="slide" presentationStyle="pageSheet">
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Grup Oluştur</Text>
+          </View>
+
+          <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
+            <Text style={styles.label}>Grup Adı *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="BURAK HAFRİYAT TAŞIMA NAKLİYE"
+              value={newGroupName}
+              onChangeText={setNewGroupName}
+            />
+
+            <Text style={styles.label}>Açıklama</Text>
+            <TextInput
+              style={[styles.input, { height: 80, paddingTop: 10 }]}
+              placeholder="Grup hakkında kısa bir açıklama..."
+              value={newGroupDesc}
+              onChangeText={setNewGroupDesc}
+              multiline
+            />
+
+            <Text style={styles.label}>Görünmek İstediğiniz İlleri Seçin *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="İlleri arayın..."
+              value={citySearch}
+              onChangeText={setCitySearch}
+            />
+            <Text style={styles.helperText}>Arama yaparak birden fazla il seçebilirsiniz.</Text>
+
+            <View style={styles.cityList}>
+              {filteredCitiesForSelect.slice(0, 50).map(city => {
+                const isSelected = selectedProvinces.includes(city.value);
+                return (
+                  <TouchableOpacity
+                    key={city.value}
+                    style={[styles.cityChip, isSelected && styles.cityChipSelected]}
+                    onPress={() => toggleProvince(city.value)}
+                  >
+                    <Text style={[styles.cityChipText, isSelected && styles.cityChipTextSelected]}>
+                      {city.label} {isSelected ? '✓' : ''}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <TouchableOpacity style={styles.submitBtn} onPress={handleCreateGroup} disabled={creating}>
+              {creating ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>✓ Grubu Oluştur</Text>}
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setCreateModalVisible(false)} disabled={creating}>
+              <Text style={styles.cancelBtnText}>← Vazgeç</Text>
+            </TouchableOpacity>
+
+            <View style={{ height: 40 }} />
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -108,24 +312,76 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 12,
   },
+  searchRow: {
+    flexDirection: 'row',
+    marginBottom: 10,
+    gap: 10,
+  },
   search: {
+    flex: 1,
     backgroundColor: '#F2F2F2',
     borderRadius: 12,
     paddingHorizontal: 12,
     height: 42,
-    marginBottom: 12,
+  },
+  cityBtn: {
+    backgroundColor: '#F2F2F2',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 42,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexDirection: 'row',
+    minWidth: 100,
+  },
+  cityText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#333',
+  },
+  createGroupBtn: {
+    backgroundColor: '#FFD500',
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  createGroupText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#000',
+  },
+  sectionHeader: {
+    backgroundColor: '#F9F9F9',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginBottom: 8,
+    marginTop: 8,
+  },
+  sectionHeaderText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#555',
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
   },
-  avatar: {
-    width: 65,
-    height: 65,
-    borderRadius: 35,
+  iconContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     marginRight: 12,
     backgroundColor: '#FFD500',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  icon: {
+    width: 24,
+    height: 24,
+    tintColor: '#000',
     resizeMode: 'contain',
   },
   content: {
@@ -133,20 +389,41 @@ const styles = StyleSheet.create({
   },
   name: {
     fontWeight: '700',
-    fontSize: 13,
+    fontSize: 14,
+    marginBottom: 2,
   },
   message: {
-    fontSize: 12,
-    color: '#555',
-    marginTop: 2,
+    fontSize: 13,
+    color: '#666',
+  },
+  rightContent: {
+    alignItems: 'flex-end',
+    marginLeft: 8,
   },
   time: {
     fontSize: 11,
+    color: '#999',
+    marginBottom: 4,
+  },
+  memberBadge: {
+    backgroundColor: '#2E7D32',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  memberBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  memberCountText: {
     color: '#888',
+    fontSize: 12,
   },
   divider: {
     height: 1,
     backgroundColor: '#eee',
+    marginLeft: 62,
   },
   emptyText: {
     textAlign: 'center',
@@ -154,4 +431,98 @@ const styles = StyleSheet.create({
     color: '#888',
     fontSize: 13,
   },
+  /* MODAL STYLES */
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#FFFBE6', // Arkaplan rengi screenshot'a benzer
+  },
+  modalHeader: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    backgroundColor: '#FFD500',
+    alignItems: 'center',
+    flexDirection: 'row',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    flex: 1,
+  },
+  modalBody: {
+    padding: 20,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+    color: '#333',
+    marginTop: 10,
+  },
+  input: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    height: 46,
+    fontSize: 14,
+  },
+  helperText: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 4,
+    marginBottom: 10,
+  },
+  cityList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 20,
+    paddingBottom: 20,
+  },
+  cityChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  cityChipSelected: {
+    backgroundColor: '#FFD500',
+    borderColor: '#FFD500',
+  },
+  cityChipText: {
+    fontSize: 13,
+    color: '#333',
+  },
+  cityChipTextSelected: {
+    fontWeight: '600',
+    color: '#000',
+  },
+  submitBtn: {
+    backgroundColor: '#FFA500', // Turuncu
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  submitBtnText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  cancelBtn: {
+    backgroundColor: '#E0E0E0',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  cancelBtnText: {
+    color: '#555',
+    fontWeight: '600',
+    fontSize: 16,
+  }
 });

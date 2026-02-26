@@ -3,6 +3,7 @@ import {
   View,
   Text,
   StyleSheet,
+  SectionList,
   FlatList,
   TouchableOpacity,
   Modal,
@@ -30,6 +31,7 @@ type VehicleApi = {
   canEdit: boolean;
   canDelete: boolean;
   createdDate: string;
+  companyName?: string;
 };
 type VehicleUI = {
   id: string;
@@ -37,6 +39,7 @@ type VehicleUI = {
   canEdit: boolean;
   canDelete: boolean;
   createdDate: string;
+  companyName?: string;
 };
 
 
@@ -69,6 +72,7 @@ export default function SupplierVehicles() {
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  const [sections, setSections] = useState<{ title: string; data: VehicleUI[][] }[]>([]);
   const [vehicles, setVehicles] = useState<VehicleUI[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -264,6 +268,7 @@ export default function SupplierVehicles() {
     canEdit: item.canEdit,
     canDelete: item.canDelete,
     createdDate: item.createdDate,
+    companyName: item.companyName,
   });
   const normalizedPlate = (value: string) =>
     value.replace(/\s/g, '').toUpperCase();
@@ -376,6 +381,7 @@ export default function SupplierVehicles() {
     setSelectedTrip(item);
     setReceiptVisible(true);
   };
+
   const fetchVehicles = async () => {
     if (!token) return; // ✅ burada null engellenir
 
@@ -386,6 +392,36 @@ export default function SupplierVehicles() {
       const data = await getVehicles(token); // artık TS mutlu
       const mapped = data.map(mapVehicleFromApi);
       setVehicles(mapped);
+
+      // Grouping logic
+      const grouped: { [key: string]: VehicleUI[] } = {};
+
+      mapped.forEach((vehicle: VehicleUI) => {
+        const key = vehicle.companyName || 'Kendi Araçlarım';
+        if (!grouped[key]) {
+          grouped[key] = [];
+        }
+        grouped[key].push(vehicle);
+      });
+
+      const sectionsData = Object.keys(grouped).map(key => {
+        const groupItems = grouped[key];
+        const chunkedData: VehicleUI[][] = [];
+        for (let i = 0; i < groupItems.length; i += 2) {
+          chunkedData.push(groupItems.slice(i, i + 2));
+        }
+        return {
+          title: key,
+          data: chunkedData
+        };
+      }).sort((a, b) => {
+        if (a.title === 'Kendi Araçlarım') return -1;
+        if (b.title === 'Kendi Araçlarım') return 1;
+        return a.title.localeCompare(b.title);
+      });
+
+      setSections(sectionsData);
+
     } catch (e) {
       setError('Araçlar yüklenemedi');
     } finally {
@@ -400,20 +436,31 @@ export default function SupplierVehicles() {
 
   /* ================= RENDERS ================= */
 
-  const renderVehicle = ({ item }: any) => (
-    <TouchableOpacity
-      style={styles.vehicleCard}
-      activeOpacity={0.85}
-      onPress={() => openVehicleDetail(item)}
-    >
-      <View style={styles.plateBox}>
-        <Text style={styles.plateText}>{item.plate}</Text>
-      </View>
+  const renderVehicle = ({ item }: { item: VehicleUI[] }) => (
+    <View style={{ flexDirection: 'row', gap: 10 }}>
+      {item.map((vehicle) => (
+        <TouchableOpacity
+          key={vehicle.id}
+          style={[styles.vehicleCard, { flex: 1 }]}
+          activeOpacity={0.85}
+          onPress={() => openVehicleDetail(vehicle)}
+        >
+          <View style={styles.plateBox}>
+            <Text style={styles.plateText}>{vehicle.plate}</Text>
+          </View>
 
-      {/* <Text style={styles.vehicleInfo}>Harcanan Yakıt: {item.fuel}</Text>
-      <Text style={styles.vehicleInfo}>Toplanan Para: {item.cash}</Text> */}
-      <Text style={styles.vehicleDate}>Kayıt: {formatDateDMY(item.createdDate)}</Text>
-    </TouchableOpacity>
+          <Text style={styles.vehicleDate}>Kayıt: {formatDateDMY(vehicle.createdDate)}</Text>
+        </TouchableOpacity>
+      ))}
+      {/* If there's only 1 item, add an empty view to fill the space so it aligns left */}
+      {item.length === 1 && <View style={{ flex: 1 }} />}
+    </View>
+  );
+
+  const renderSectionHeader = ({ section: { title } }: any) => (
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionHeaderText}>{title}</Text>
+    </View>
   );
 
   const renderTrip = ({ item }: any) => (
@@ -480,13 +527,14 @@ export default function SupplierVehicles() {
 
       {/* ================= VEHICLES ================= */}
       {activeTab === 'vehicles' && (
-        <FlatList
-          data={vehicles}
-          keyExtractor={i => i.id}
+        <SectionList
+          sections={sections}
+          keyExtractor={(item) => item[0].id}
           renderItem={renderVehicle}
-          numColumns={2}
-          columnWrapperStyle={{ justifyContent: 'space-between' }}
+          renderSectionHeader={renderSectionHeader}
           contentContainerStyle={{ paddingVertical: 12, gap: 10, padding: 5 }}
+          stickySectionHeadersEnabled={false}
+          renderSectionFooter={() => <View style={{ height: 10 }} />}
         />
       )}
 
@@ -1182,4 +1230,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 
+  sectionHeader: {
+    backgroundColor: '#FFFBEA',
+    paddingVertical: 10,
+    marginTop: 10,
+  },
+
+  sectionHeaderText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#222',
+  },
 });

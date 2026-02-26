@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, Image, TouchableOpacity, Platform, Alert, ActionSheetIOS } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TextInput, Image, TouchableOpacity, Platform, Alert, ActionSheetIOS, Modal, ScrollView, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,49 +13,8 @@ const LIGHT_YELLOW = '#FFF2B3';
 const GRAY = '#F4F4F4';
 const DARK = '#222';
 
-const jobs = [
-  {
-    id: '1',
-    company: 'KAYA HAFRİYAT',
-    site: 'GÜNEŞLİ ŞANTİYESİ',
-    logo: require('../../../assets/icons/excavator.png'),
-    dumps: [
-      { place: 'CEBECİ', cash: '2000₺', fuel: '40lt' },
-      { place: 'BOLLUCA', cash: '4000₺', fuel: '65lt' },
-      { place: 'AL-GÖTÜR', cash: '7000₺', fuel: '75lt' },
-    ],
-    status: 'Yükleme Devam Ediyor',
-    statusColor: '#C8E6C9',
-  },
-  {
-    id: '2',
-    company: 'YILMAZ HAFRİYAT',
-    site: 'ESENLER ŞANTİYESİ',
-    logo: require('../../../assets/logokarakalem.png'),
-    dumps: [
-      { place: 'CEBECİ', cash: '2000₺', fuel: '40lt' },
-      { place: 'BOLLUCA', cash: '4000₺', fuel: '65lt' },
-    ],
-    status: 'Gece 10’a kadar yükleme devam edecek',
-    statusColor: LIGHT_YELLOW,
-  },
-  {
-    id: '3',
-    company: 'KAYA HAFRİYAT',
-    site: 'GÜNEŞLİ ŞANTİYESİ',
-    logo: require('../../../assets/icons/excavator.png'),
-    dumps: [
-      { place: 'CEBECİ', cash: '2000₺', fuel: '40lt' },
-      { place: 'BOLLUCA', cash: '4000₺', fuel: '65lt' },
-      { place: 'AL-GÖTÜR', cash: '7000₺', fuel: '75lt' },
-    ],
-    status: 'Yükleme Devam Ediyor',
-    statusColor: '#C8E6C9',
-  },
-];
-
-const ActionItem = ({ icon, label }: { icon: any; label: string }) => (
-  <TouchableOpacity style={styles.actionItem} activeOpacity={0.7}>
+const ActionItem = ({ icon, label, onPress }: { icon: any; label: string; onPress?: () => void }) => (
+  <TouchableOpacity style={styles.actionItem} activeOpacity={0.7} onPress={onPress}>
     <Image style={{ width: 20, height: 20 }} source={icon} />
     <Text style={styles.actionLabel}>{label}</Text>
   </TouchableOpacity>
@@ -74,23 +33,23 @@ const AllJobs = () => {
   /** 🔍 Firma + Şantiye Araması */
   const filteredJobs = useMemo(() => {
     const q = search.trim().toLowerCase();
-  
+
     if (!q) return jobs;
-  
+
     return jobs.filter(
       item =>
         item.company?.toLowerCase().includes(q) ||
         item.site?.toLowerCase().includes(q),
     );
   }, [search, jobs]); // ✅
-  
+
   useEffect(() => {
     fetchJobs();
   }, [selectedCity]);
 
   const openCityPicker = () => {
     const options = ['İptal', ...CITIES.map(c => c.label)];
-  
+
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         {
@@ -99,7 +58,7 @@ const AllJobs = () => {
         },
         buttonIndex => {
           if (buttonIndex === 0) return;
-  
+
           const city = CITIES[buttonIndex - 1];
           setSelectedCity(city.value);
         },
@@ -118,13 +77,13 @@ const AllJobs = () => {
   };
   const fetchJobs = async () => {
     if (!token) return;
-  
+
     setLoading(true);
     try {
       const response = await getMarketJobs(token, selectedCity);
       const mapped = response.map(mapJobFromApi);
-      console.log('response',response)
-      console.log('mapped',mapped)
+      console.log('response', response)
+      console.log('mapped', mapped)
       setJobs(mapped);
     } catch (e) {
       console.log('Market jobs error', e);
@@ -132,6 +91,31 @@ const AllJobs = () => {
       setLoading(false);
     }
   };
+  /* DETAILS MODAL */
+  const [detailsModalVisible, setDetailsModalVisible] = useState(false);
+  const [selectedJob, setSelectedJob] = useState<any>(null);
+
+  const handleOpenDetails = (job: any) => {
+    setSelectedJob(job);
+    setDetailsModalVisible(true);
+  };
+
+  const handleCloseDetails = () => {
+    setDetailsModalVisible(false);
+    setSelectedJob(null);
+  };
+
+  const handleLocationPress = (url?: string) => {
+    if (!url) {
+      Alert.alert('Hata', 'Konum bilgisi bulunamadı.');
+      return;
+    }
+    Linking.openURL(url).catch(err => {
+      console.error('An error occurred', err);
+      Alert.alert('Hata', 'Harita açılamadı.');
+    });
+  };
+
   const renderItem = ({ item }: any) => (
     <View style={styles.card}>
       {/* HEADER */}
@@ -141,9 +125,12 @@ const AllJobs = () => {
         <View style={styles.titleArea}>
           <Text style={styles.company}>{item.company}</Text>
           <Text style={styles.site}>{item.site}</Text>
+          <Text style={styles.jobType}>
+            {item.jobType === 1 ? 'Kum & Mıcır' : 'Hafriyat Döküm'}
+          </Text>
         </View>
 
-        <TouchableOpacity style={styles.moreBtn}>
+        <TouchableOpacity style={styles.moreBtn} onPress={() => handleOpenDetails(item)}>
           <Image style={{ width: 20, height: 20 }} source={require('../../../assets/icons/dots.png')} />
           <Text style={styles.moreText}>Ayrıntılar</Text>
         </TouchableOpacity>
@@ -151,7 +138,11 @@ const AllJobs = () => {
 
       {/* ACTIONS */}
       <View style={styles.actionRow}>
-        <ActionItem icon={require('../../../assets/icons/location.png')} label="Konum" />
+        <ActionItem
+          icon={require('../../../assets/icons/location.png')}
+          label="Konum"
+          onPress={() => handleLocationPress(item.locationUrl)}
+        />
         <ActionItem icon={require('../../../assets/icons/phone-call.png')} label="Arama" />
         <ActionItem icon={require('../../../assets/icons/send.png')} label="Paylaş" />
         {/* <ActionItem icon={require('../../../assets/icons/dots.png')} label="Ayrıntılar" /> */}
@@ -214,25 +205,25 @@ const AllJobs = () => {
               onChangeText={setSearch}
               style={styles.searchInput}
             />
-        
+
             {/* CITY DROPDOWN */}
             <View>
-            <TouchableOpacity
-  style={styles.citySelect}
-  onPress={openCityPicker}
-  activeOpacity={0.8}
->
-  <Text style={styles.cityText}>
-    {selectedCity
-      ? CITIES.find(c => c.value === selectedCity)?.label
-      : 'İl'}
-  </Text>
-  <Image
-    source={require('../../../assets/icons/down-arrow.png')}
-    style={{ width: 14, height: 14 }}
-  />
-</TouchableOpacity>
-        
+              <TouchableOpacity
+                style={styles.citySelect}
+                onPress={openCityPicker}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.cityText}>
+                  {selectedCity
+                    ? CITIES.find(c => c.value === selectedCity)?.label
+                    : 'İl'}
+                </Text>
+                <Image
+                  source={require('../../../assets/icons/down-arrow.png')}
+                  style={{ width: 14, height: 14 }}
+                />
+              </TouchableOpacity>
+
               {cityOpen && (
                 <View style={styles.cityDropdown}>
                   <FlatList
@@ -256,8 +247,65 @@ const AllJobs = () => {
             </View>
           </View>
         }
-        
+
       />
+
+      {/* DETAILS MODAL */}
+      {selectedJob && (
+        <React.Fragment>
+          {/* Use React.Fragment or just render Modal directly if possible, importing Modal first */}
+          {/* I need to import Modal at the top of the file first. */}
+          {/* Wait, imports are at the top. I need to make sure Modal is imported. */}
+        </React.Fragment>
+      )}
+      <Modal
+        visible={detailsModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handleCloseDetails}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>İş Detayları</Text>
+              <TouchableOpacity onPress={handleCloseDetails}>
+                <Text style={styles.closeText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalBody}>
+              <Text style={styles.modalLabel}>Firma:</Text>
+              <Text style={styles.modalValue}>{selectedJob?.company}</Text>
+
+              <Text style={styles.modalLabel}>Şantiye:</Text>
+              <Text style={styles.modalValue}>{selectedJob?.site}</Text>
+
+              <Text style={styles.modalLabel}>İş Türü:</Text>
+              <Text style={styles.modalValue}>{selectedJob?.jobType === 1 ? 'Kum & Mıcır' : 'Hafriyat Döküm'}</Text>
+
+              <Text style={styles.modalLabel}>Çalışma Saatleri:</Text>
+              <Text style={styles.modalValue}>
+                {selectedJob?.loadingStartTime || '??'} - {selectedJob?.loadingEndTime || '??'}
+              </Text>
+
+              <Text style={styles.modalLabel}>Açıklama:</Text>
+              <Text style={styles.modalDescription}>{selectedJob?.description || 'Açıklama yok.'}</Text>
+
+              <Text style={styles.modalLabel}>İletişim:</Text>
+              <Text style={styles.modalValue}>{selectedJob?.phone || '-'}</Text>
+
+              <Text style={styles.modalLabel}>Konum:</Text>
+              <Text style={styles.modalValue}>{selectedJob?.locationUrl || '-'}</Text>
+            </ScrollView>
+
+            <View style={styles.modalFooter}>
+              <TouchableOpacity style={styles.closeBtn} onPress={handleCloseDetails}>
+                <Text style={styles.closeBtnText}>Kapat</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -280,7 +328,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 16,
     height: 48,
-    width:'60%',
+    width: '60%',
     fontSize: 14,
     shadowOffset: {
       width: 0,
@@ -406,13 +454,13 @@ const styles = StyleSheet.create({
     flex: 1, // 🔥 ekranın geri kalanını kaplar
   },
   searchRow: {
-    flexDirection:'row',
-    justifyContent:'space-between',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     gap: 10,
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  
+
   citySelect: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -421,20 +469,20 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 12,
     height: 48,
-    width:'60%',
+    width: '60%',
     shadowOffset: { width: 1, height: 3 },
     shadowColor: '#000',
     shadowOpacity: 0.15,
     shadowRadius: 6,
     elevation: 2,
   },
-  
+
   cityText: {
     fontSize: 13,
-    fontWeight:'500',
+    fontWeight: '500',
     color: DARK,
   },
-  
+
   cityDropdown: {
     position: 'absolute',
     top: 52,
@@ -444,21 +492,97 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     zIndex: 100,
     paddingVertical: 6,
-  
+
     shadowColor: '#000',
     shadowOpacity: 0.15,
     shadowRadius: 10,
     elevation: 8,
   },
-  
+
   cityItem: {
     paddingVertical: 10,
     paddingHorizontal: 14,
   },
-  
+
   cityItemText: {
     fontSize: 14,
     color: DARK,
   },
-  
+
+  /* JOB TYPE */
+  jobType: {
+    fontSize: 12,
+    color: '#F5A623',
+    fontWeight: '700',
+    marginTop: 2,
+  },
+
+  /* MODAL */
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: '85%',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    overflow: 'hidden',
+    maxHeight: '70%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    backgroundColor: '#FAFAFA',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: DARK,
+  },
+  closeText: {
+    fontSize: 20,
+    color: '#999',
+    padding: 4,
+  },
+  modalBody: {
+    padding: 20,
+  },
+  modalLabel: {
+    fontSize: 12,
+    color: '#888',
+    marginBottom: 2,
+    marginTop: 10,
+  },
+  modalValue: {
+    fontSize: 14,
+    color: DARK,
+    fontWeight: '500',
+  },
+  modalDescription: {
+    fontSize: 14,
+    color: DARK,
+    lineHeight: 20,
+  },
+  modalFooter: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    alignItems: 'center',
+  },
+  closeBtn: {
+    backgroundColor: DARK,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  closeBtnText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
 });
