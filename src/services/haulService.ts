@@ -13,6 +13,7 @@ export type HaulApi = {
   note?: string;
   driverName?: string;
   driverPhone?: string;
+  contactPhone?: string;
   timeOfHaul: string;
   dumpLocation: string;
   tonage: number;
@@ -29,7 +30,7 @@ export type HaulApi = {
 export const getHauls = async (token: string): Promise<HaulApi[]> => {
   try {
     console.log('🚀 [Haul] getHauls başlıyor');
-    const res = await axios.get(`${API_URL}/Haul`, {
+    const res = await axios.get(`${API_URL}/Haul/my`, {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: 'application/json',

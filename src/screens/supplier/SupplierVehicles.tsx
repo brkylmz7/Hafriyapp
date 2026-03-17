@@ -14,7 +14,8 @@ import {
   Platform,
   TouchableWithoutFeedback,
   Pressable,
-  Alert
+  Alert,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppSelector } from '../../hooks';
@@ -971,111 +972,141 @@ export default function SupplierVehicles() {
 
 
       {/* ================= RECEIPT MODAL ================= */}
-      <Modal visible={receiptVisible} transparent animationType="fade">
+      <Modal visible={receiptVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-          <View style={styles.receiptCard}>
-            {/* Header */}
-            <View style={styles.receiptHeader}>
-              <Text style={styles.receiptTitle}>🧾 Sefer Fişi</Text>
+          <View style={styles.receiptModalWrap}>
+            {/* Modal Başlık */}
+            <View style={styles.receiptModalHeader}>
+              <Text style={styles.receiptModalTitle}>🧾 Sefer Fişi</Text>
               <Pressable onPress={() => setReceiptVisible(false)}>
                 <Text style={styles.closeX}>✕</Text>
               </Pressable>
             </View>
 
             {selectedTrip && (
-              <ScrollView showsVerticalScrollIndicator={false}>
-                {/* Seri / ID */}
-                <View style={styles.receiptRow}>
-                  <Text style={styles.receiptLabel}>Seri No</Text>
-                  <Text style={styles.receiptValue}>
-                    {selectedTrip.serialNumber
-                      ? `#${selectedTrip.serialNumber}`
-                      : selectedTrip.id.substring(0, 8).toUpperCase()}
-                  </Text>
-                </View>
-                <View style={styles.receiptDivider} />
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+                {/* FİŞ KARTI — web .haul-receipt stili */}
+                <View style={styles.receiptCard}>
+                  {/* WATERMARK */}
+                  <View style={styles.receiptWatermark} pointerEvents="none">
+                    <Text style={styles.receiptWatermarkText}>HAFRİYAT</Text>
+                  </View>
 
-                <View style={styles.receiptRow}>
-                  <Text style={styles.receiptLabel}>Tarih</Text>
-                  <Text style={styles.receiptValue}>{formatHaulDate(selectedTrip.timeOfHaul)}</Text>
-                </View>
-                <View style={styles.receiptDivider} />
-
-                <View style={styles.receiptRow}>
-                  <Text style={styles.receiptLabel}>Plaka</Text>
-                  <Text style={[styles.receiptValue, { fontWeight: '800' }]}>{selectedTrip.plateNumber}</Text>
-                </View>
-                <View style={styles.receiptDivider} />
-
-                <View style={styles.receiptRow}>
-                  <Text style={styles.receiptLabel}>Şantiye</Text>
-                  <Text style={styles.receiptValue}>{selectedTrip.jobSiteName || '-'}</Text>
-                </View>
-                <View style={styles.receiptDivider} />
-
-                {selectedTrip.companyName ? (
-                  <>
-                    <View style={styles.receiptRow}>
-                      <Text style={styles.receiptLabel}>Firma</Text>
-                      <Text style={styles.receiptValue}>{selectedTrip.companyName}</Text>
+                  {/* ÜST BÖLÜM: Saat | Firma+Şantiye | QR */}
+                  <View style={styles.receiptTop}>
+                    {/* Sol: Saat + Tarih */}
+                    <View style={styles.receiptTopLeft}>
+                      <Text style={styles.receiptBigTime}>
+                        {new Date(selectedTrip.timeOfHaul).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                      <Text style={styles.receiptSmallDate}>
+                        {new Date(selectedTrip.timeOfHaul).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: '2-digit' })}
+                      </Text>
                     </View>
-                    <View style={styles.receiptDivider} />
-                  </>
-                ) : null}
 
-                <View style={styles.receiptRow}>
-                  <Text style={styles.receiptLabel}>Döküm Yeri</Text>
-                  <Text style={styles.receiptValue}>{selectedTrip.dumpLocation || '-'}</Text>
-                </View>
-                <View style={styles.receiptDivider} />
-
-                <View style={styles.receiptRow}>
-                  <Text style={styles.receiptLabel}>Tonaj</Text>
-                  <Text style={styles.receiptValue}>{selectedTrip.tonage} ton</Text>
-                </View>
-                <View style={styles.receiptDivider} />
-
-                <View style={styles.receiptRow}>
-                  <Text style={styles.receiptLabel}>Ödeme</Text>
-                  <Text style={styles.receiptValue}>{paymentLabel(selectedTrip)}</Text>
-                </View>
-                <View style={styles.receiptDivider} />
-
-                {selectedTrip.driverName ? (
-                  <>
-                    <View style={styles.receiptRow}>
-                      <Text style={styles.receiptLabel}>Şoför</Text>
-                      <Text style={styles.receiptValue}>{selectedTrip.driverName}</Text>
+                    {/* Orta: Firma + Şantiye */}
+                    <View style={styles.receiptTopCenter}>
+                      <Text style={styles.receiptCompanyName} numberOfLines={2}>
+                        {(selectedTrip.companyName || 'HAFRİYAT').toUpperCase()}
+                      </Text>
+                      <Text style={styles.receiptJobsiteName} numberOfLines={1}>
+                        {selectedTrip.jobSiteName || '-'}
+                      </Text>
                     </View>
-                    <View style={styles.receiptDivider} />
-                  </>
-                ) : null}
 
-                {selectedTrip.note ? (
-                  <>
-                    <View style={styles.receiptRow}>
-                      <Text style={styles.receiptLabel}>Not</Text>
-                      <Text style={styles.receiptValue}>{selectedTrip.note}</Text>
+                    {/* Sağ: QR */}
+                    <View style={styles.receiptTopRight}>
+                      {selectedTrip.qrCodeBase64 ? (
+                        <Image
+                          source={{ uri: `data:image/png;base64,${selectedTrip.qrCodeBase64}` }}
+                          style={styles.receiptQR}
+                          resizeMode="contain"
+                        />
+                      ) : (
+                        <View style={[styles.receiptQR, { alignItems: 'center', justifyContent: 'center' }]}>
+                          <Text style={{ fontSize: 28 }}>📋</Text>
+                        </View>
+                      )}
                     </View>
-                    <View style={styles.receiptDivider} />
-                  </>
-                ) : null}
+                  </View>
 
-                {/* Ödeme Durumu */}
+                  {/* DETAY SATIRLARI */}
+                  <View style={styles.receiptDetails}>
+                    <View style={styles.receiptDetailRow}>
+                      <Text style={styles.receiptDetailLabel}>Plaka</Text>
+                      <Text style={[styles.receiptDetailValue, { fontWeight: '800', letterSpacing: 1 }]}>
+                        {selectedTrip.plateNumber}
+                      </Text>
+                    </View>
+
+                    <View style={styles.receiptDetailRow}>
+                      <Text style={styles.receiptDetailLabel}>Şoför</Text>
+                      <Text style={styles.receiptDetailValue}>
+                        {selectedTrip.driverPhone || selectedTrip.driverName || '-'}
+                      </Text>
+                    </View>
+
+                    <View style={styles.receiptDetailRow}>
+                      <Text style={styles.receiptDetailLabel}>Döküm</Text>
+                      <Text style={styles.receiptDetailValue} numberOfLines={2}>
+                        {selectedTrip.dumpLocation || '-'}
+                      </Text>
+                    </View>
+
+                    {selectedTrip.tonage > 0 && (
+                      <View style={styles.receiptDetailRow}>
+                        <Text style={styles.receiptDetailLabel}>Tonaj</Text>
+                        <Text style={styles.receiptDetailValue}>
+                          {selectedTrip.tonage.toLocaleString('tr-TR')} kg
+                        </Text>
+                      </View>
+                    )}
+
+                    <View style={[styles.receiptDetailRow, styles.receiptDetailRowStrong]}>
+                      <Text style={styles.receiptDetailLabel}>Ücret</Text>
+                      <Text style={[styles.receiptDetailValue, styles.receiptDetailValueStrong]}>
+                        {(() => {
+                          const parts: string[] = [];
+                          if (selectedTrip.cashAmount > 0)
+                            parts.push(`${selectedTrip.cashAmount.toLocaleString('tr-TR')} TL`);
+                          if (selectedTrip.fuelAmount > 0)
+                            parts.push(`${selectedTrip.fuelAmount.toLocaleString('tr-TR')} Lt`);
+                          return parts.length > 0 ? parts.join(' / ') : '-';
+                        })()}
+                      </Text>
+                    </View>
+
+                    {selectedTrip.contactPhone ? (
+                      <View style={[styles.receiptDetailRow, { borderBottomWidth: 0 }]}>
+                        <Text style={styles.receiptDetailLabel}>Yetkili</Text>
+                        <Text style={styles.receiptDetailValue}>{selectedTrip.contactPhone}</Text>
+                      </View>
+                    ) : (
+                      <View style={[styles.receiptDetailRow, { borderBottomWidth: 0 }]}>
+                        <Text style={styles.receiptDetailLabel}>Seri No</Text>
+                        <Text style={[styles.receiptDetailValue, { fontFamily: 'monospace' }]}>
+                          {autoSerial(selectedTrip)}
+                          {selectedTrip.serialNumber ? `  #${selectedTrip.serialNumber}` : ''}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+
+                {/* DURUM */}
                 <View style={[
                   styles.receiptStatusBox,
-                  { backgroundColor: selectedTrip.isPaid ? '#EAF7EA' : '#FFF4E5' }
+                  { backgroundColor: selectedTrip.isPaid ? '#E8F5E9' : '#FFFDE7' },
                 ]}>
                   <Text style={{
                     fontWeight: '800',
                     color: selectedTrip.isPaid ? '#2E7D32' : '#E65100',
-                    fontSize: 15,
+                    fontSize: 14,
                   }}>
                     {selectedTrip.isPaid ? '✔ Ödendi' : '⏳ Ödeme Bekliyor'}
                   </Text>
                 </View>
 
-                {/* Onayla butonu (ödenmemişse) */}
                 {!selectedTrip.isPaid && (
                   <TouchableOpacity
                     style={styles.confirmBigBtn}
@@ -1089,6 +1120,11 @@ export default function SupplierVehicles() {
                 )}
               </ScrollView>
             )}
+
+            {/* Footer */}
+            <TouchableOpacity style={styles.receiptCloseBtn} onPress={() => setReceiptVisible(false)}>
+              <Text style={styles.receiptCloseBtnText}>Kapat</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -1998,73 +2034,194 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // Receipt Modal
-  receiptCard: {
-    width: '90%',
-    maxHeight: '85%',
+  // Receipt Modal wrap
+  receiptModalWrap: {
+    width: '92%',
+    maxHeight: '88%',
     backgroundColor: '#fff',
     borderRadius: 20,
-    padding: 20,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 10,
   },
 
-  receiptHeader: {
+  receiptModalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
   },
 
-  receiptTitle: {
-    fontSize: 18,
+  receiptModalTitle: {
+    fontSize: 17,
     fontWeight: '800',
+    color: DARK,
   },
 
-  receiptRow: {
+  // Fiş kartı — .haul-receipt
+  receiptCard: {
+    borderWidth: 2,
+    borderColor: DARK,
+    borderRadius: 18,
+    padding: 14,
+    position: 'relative',
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+    marginBottom: 12,
+  },
+
+  receiptWatermark: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 0,
+  },
+
+  receiptWatermarkText: {
+    fontSize: 52,
+    fontWeight: '800',
+    color: DARK,
+    opacity: 0.06,
+    letterSpacing: 2,
+    transform: [{ rotate: '-28deg' }],
+  },
+
+  // Üst bölüm — .haul-receipt__top
+  receiptTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    zIndex: 1,
+    marginBottom: 10,
+  },
+
+  receiptTopLeft: {
+    minWidth: 62,
+  },
+
+  receiptBigTime: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: DARK,
+    lineHeight: 26,
+  },
+
+  receiptSmallDate: {
+    fontSize: 11,
+    color: '#888',
+    marginTop: 2,
+  },
+
+  receiptTopCenter: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  receiptCompanyName: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: DARK,
+    textTransform: 'uppercase',
+  },
+
+  receiptJobsiteName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: DARK,
+    marginTop: 2,
+  },
+
+  receiptTopRight: {
+    alignItems: 'flex-end',
+  },
+
+  receiptQR: {
+    width: 80,
+    height: 80,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    padding: 3,
+  },
+
+  // Detay satırları — .haul-receipt__details
+  receiptDetails: {
+    zIndex: 1,
+  },
+
+  receiptDetailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 10,
+    alignItems: 'flex-start',
+    gap: 10,
+    paddingVertical: 7,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.12)',
+    borderStyle: 'dashed',
   },
 
-  receiptLabel: {
+  receiptDetailRowStrong: {
+    borderBottomColor: 'rgba(0,0,0,0.18)',
+  },
+
+  receiptDetailLabel: {
+    fontSize: 12,
     color: '#888',
-    fontSize: 13,
-    fontWeight: '600',
+    minWidth: 52,
   },
 
-  receiptValue: {
+  receiptDetailValue: {
+    fontSize: 12,
     color: DARK,
-    fontSize: 13,
     fontWeight: '600',
-    maxWidth: '60%',
+    flex: 1,
     textAlign: 'right',
   },
 
-  receiptDivider: {
-    height: 1,
-    backgroundColor: '#F0F0F0',
+  receiptDetailValueStrong: {
+    fontSize: 14,
+    fontWeight: '800',
   },
 
   receiptStatusBox: {
     borderRadius: 12,
-    padding: 14,
+    padding: 12,
     alignItems: 'center',
-    marginTop: 16,
-    marginBottom: 12,
+    marginBottom: 10,
   },
 
   confirmBigBtn: {
     backgroundColor: '#2E7D32',
     borderRadius: 14,
-    paddingVertical: 14,
+    paddingVertical: 13,
     alignItems: 'center',
-    marginTop: 4,
-    marginBottom: 8,
+    marginBottom: 6,
   },
 
   confirmBigText: {
     color: '#fff',
     fontSize: 15,
     fontWeight: '800',
+  },
+
+  receiptCloseBtn: {
+    borderWidth: 1.5,
+    borderColor: '#ccc',
+    borderRadius: 12,
+    paddingVertical: 11,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+
+  receiptCloseBtnText: {
+    color: '#555',
+    fontWeight: '700',
+    fontSize: 14,
   },
 
   // Payment Modal
