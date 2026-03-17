@@ -59,7 +59,7 @@ export default function BottomTabs() {
                     alignItems: 'center',
                   }}>
                   <Image
-                    source={require('../../assets/icons/home.png')}
+                    source={require('../../assets/icons/homeicon-1.png')}
                     style={{
                       width: 35,
                       height: 35,
@@ -88,10 +88,10 @@ export default function BottomTabs() {
                     alignItems: 'center',
                   }}>
                   <Image
-                    source={require('../../assets/icons/excavator.png')}
+                    source={require('../../assets/icons/alljobs-2.png')}
                     style={{
-                      width: 35,
-                      height: 35,
+                      width: 50,
+                      height: 50,
                       tintColor: focused ? 'black' : '#444',
                     }}
                   />
@@ -117,10 +117,10 @@ export default function BottomTabs() {
                     alignItems: 'center',
                   }}>
                   <Image
-                    source={require('../../assets/icons/drive.png')}
+                    source={require('../../assets/icons/myjobs-1.png')}
                     style={{
-                      width: 35,
-                      height: 35,
+                      width: 45,
+                      height: 45,
                       tintColor: focused ? 'black' : '#444',
                     }}
                   />
@@ -148,7 +148,7 @@ export default function BottomTabs() {
                     alignItems: 'center',
                   }}>
                   <Image
-                    source={require('../../assets/icons/home.png')}
+                    source={require('../../assets/icons/homeicon-1.png')}
                     style={{
                       width: 35,
                       height: 35,
@@ -177,10 +177,10 @@ export default function BottomTabs() {
                     alignItems: 'center',
                   }}>
                   <Image
-                    source={require('../../assets/icons/excavator.png')}
+                    source={require('../../assets/icons/alljobs-2.png')}
                     style={{
-                      width: 35,
-                      height: 35,
+                      width: 55,
+                      height: 55,
                       tintColor: focused ? '#444' : 'black',
                     }}
                   />
@@ -206,10 +206,10 @@ export default function BottomTabs() {
                     alignItems: 'center',
                   }}>
                   <Image
-                    source={require('../../assets/icons/drive.png')}
+                    source={require('../../assets/icons/myjobs-1.png')}
                     style={{
-                      width: 35,
-                      height: 35,
+                      width: 45,
+                      height: 45,
                       tintColor: focused ? '#444' : 'black',
                     }}
                   />
@@ -235,7 +235,7 @@ export default function BottomTabs() {
                     alignItems: 'center',
                   }}>
                   <Image
-                    source={require('../../assets/logokarakalem.png')}
+                    source={require('../../assets/icons/drive-1.png')}
                     style={{
                       width: 45,
                       height: 45,

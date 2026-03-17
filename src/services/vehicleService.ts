@@ -174,59 +174,69 @@ export const assignDriver = async (
 
 export const getVehicleDriver = async (vehicleId: string, token: string) => {
   try {
-    console.log('🔍 [Vehicle] Get Driver:', vehicleId);
+    console.log('🔍 [Vehicle] Get Drivers:', vehicleId);
 
-    const res = await axios.get(`${API_URL}/Vehicle/${vehicleId}/driver`, {
+    // Web servisle aynı endpoint: GET /api/vehicle/{id}/drivers (dizi döner)
+    const res = await axios.get(`${API_URL}/Vehicle/${vehicleId}/drivers`, {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: '*/*',
       },
     });
 
-    console.log('✅ [Vehicle] Get Driver success:', res.status);
-    return res.data;
+    console.log('✅ [Vehicle] Get Drivers success:', res.status);
+    console.log('📦 [Vehicle] Drivers data:', res.data);
+
+    // API bir dizi döner; ilk şoförü al
+    if (Array.isArray(res.data) && res.data.length > 0) {
+      return res.data[0]; // { id, phoneNumber, displayName, firstName, lastName, ... }
+    }
+    return null;
   } catch (error: any) {
-    console.log('❌ [Vehicle] Get Driver ERROR');
-    console.log('🔗 URL:', `${API_URL}/Vehicle/${vehicleId}/driver`);
+    console.log('❌ [Vehicle] Get Drivers ERROR');
+    console.log('🔗 URL:', `${API_URL}/Vehicle/${vehicleId}/drivers`);
     console.log('🔑 Token:', token.substring(0, 10) + '...');
 
     if (error.response) {
-      // Sunucudan cevap geldi ama 2xx değil
       console.log('🔴 Status:', error.response.status);
       console.log('🔴 Data:', JSON.stringify(error.response.data, null, 2));
-      console.log('🔴 Headers:', error.response.headers);
 
       if (error.response.status === 404) {
         return null;
       }
     } else if (error.request) {
-      // İstek yapıldı ama cevap yok
       console.log('🟠 Request (No Response):', error.request);
     } else {
-      // İstek yapılamadı
       console.log('🟡 Error Message:', error.message);
     }
-    console.log('⚙️ Config:', error.config); // Request options
 
     throw error;
   }
 };
 
-export const removeDriver = async (vehicleId: string, token: string) => {
+// Web servisle aynı endpoint: DELETE /api/vehicle/{vehicleId}/remove-driver/{driverUserId}
+export const removeDriver = async (vehicleId: string, driverUserId: string, token: string) => {
   try {
-    console.log('🚫 [Vehicle] Remove Driver:', vehicleId);
+    console.log('🚫 [Vehicle] Remove Driver:', vehicleId, 'driverUserId:', driverUserId);
 
-    const res = await axios.delete(`${API_URL}/Vehicle/${vehicleId}/driver`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: '*/*',
-      },
-    });
+    const res = await axios.delete(
+      `${API_URL}/Vehicle/${vehicleId}/remove-driver/${driverUserId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: '*/*',
+        },
+      }
+    );
 
     console.log('✅ [Vehicle] Remove Driver success:', res.status);
     return res.data;
   } catch (error: any) {
     console.log('❌ [Vehicle] Remove Driver error');
+    if (error.response) {
+      console.log('🔴 Status:', error.response.status);
+      console.log('🔴 Data:', error.response.data);
+    }
     throw error;
   }
 };

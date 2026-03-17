@@ -965,7 +965,7 @@ export default function SupplierVehicles() {
                         ℹ Şoför olarak atanacak kişinin telefon numarasını girin.
                       </Text>
                       <Text style={styles.helpText}>
-                        💡 Kendiniz kullanacaksanız kendi numaranızı yazın.
+                        💡 Şoför yoksa kendi numaranızı yazın.
                       </Text>
                     </>
                   )}
