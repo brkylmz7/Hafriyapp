@@ -687,7 +687,7 @@ export default function SupplierVehicles() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={[]}>
       {/* HEADER */}
       <Text style={styles.title}>Araç Yönetimi</Text>
       <Text style={styles.subTitle}>Araç listeniz ve yönetim işlemleri</Text>
@@ -736,7 +736,7 @@ export default function SupplierVehicles() {
           keyExtractor={(item) => item[0].id}
           renderItem={renderVehicle}
           renderSectionHeader={renderSectionHeader}
-          contentContainerStyle={{ paddingVertical: 12, gap: 10, padding: 5 }}
+          contentContainerStyle={{ paddingTop: 12, paddingBottom: 20, gap: 10, paddingHorizontal: 5 }}
           stickySectionHeadersEnabled={false}
           renderSectionFooter={() => <View style={{ height: 10 }} />}
         />
@@ -1341,7 +1341,7 @@ export default function SupplierVehicles() {
 /* ================= STYLES ================= */
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFBEA', padding: 16 },
+  container: { flex: 1, backgroundColor: '#FFFBEA', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 0 },
 
   title: { fontSize: 22, fontWeight: '800', color: DARK },
   subTitle: { fontSize: 13, color: '#777', marginBottom: 12 },
