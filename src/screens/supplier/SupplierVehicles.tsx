@@ -88,6 +88,7 @@ export default function SupplierVehicles() {
   const [paymentCash, setPaymentCash] = useState('');
   const [paymentFuel, setPaymentFuel] = useState('');
   const [paymentSaving, setPaymentSaving] = useState(false);
+  const [haulFilter, setHaulFilter] = useState('');
 
   const token = useAppSelector(state => state.auth.token);
   const user = useAppSelector(state => state.auth.user);
@@ -547,41 +548,124 @@ export default function SupplierVehicles() {
     </View>
   );
 
-  const renderTrip = ({ item }: { item: HaulApi }) => (
-    <View style={[styles.row, item.isPaid && { backgroundColor: '#F0FFF4' }]}>
-      <Text style={[styles.cell, { width: 55 }]} numberOfLines={1}>
-        {item.serialNumber ? `#${item.serialNumber}` : item.id.substring(0, 6).toUpperCase()}
-      </Text>
-      <Text style={[styles.cell, { width: 90 }]}>{formatHaulDate(item.timeOfHaul)}</Text>
-      <Text style={[styles.cell, { width: 100 }]} numberOfLines={1}>{item.plateNumber}</Text>
-      <Text style={[styles.cell, { width: 90 }]} numberOfLines={1}>
-        {item.jobSiteName || item.companyName || '-'}
-      </Text>
-      <Text style={[styles.cell, { width: 75 }]}>{paymentLabel(item)}</Text>
+  const autoSerial = (haul: HaulApi) => {
+    const d = new Date(haul.createdDate);
+    const yy = String(d.getFullYear()).slice(2);
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mi = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
+    return `${yy}${mm}${dd}${hh}${mi}${ss}`;
+  };
 
-      <TouchableOpacity
-        style={[styles.cellCenter, { width: 40 }]}
-        onPress={() => openReceipt(item)}
-      >
-        <Text style={{ fontSize: 16 }}>📄</Text>
-      </TouchableOpacity>
+  const isToday = (iso: string) => {
+    const d = new Date(iso);
+    const now = new Date();
+    return d.getDate() === now.getDate() &&
+      d.getMonth() === now.getMonth() &&
+      d.getFullYear() === now.getFullYear();
+  };
 
-      <View style={{ width: 75, alignItems: 'center' }}>
-        {item.isPaid ? (
-          <View style={styles.paidBadge}>
-            <Text style={styles.paidText}>✔ Ödendi</Text>
+  const renderTrip = ({ item }: { item: HaulApi }) => {
+    const today = isToday(item.timeOfHaul);
+    const paid = item.isPaid;
+
+    return (
+      <View style={[
+        styles.haulCard,
+        paid ? styles.haulCardPaid : styles.haulCardUnpaid,
+        today && styles.haulCardToday,
+      ]}>
+        {/* Üst Satır: Seri No + Bugün Badge */}
+        <View style={styles.haulCardTopRow}>
+          <View style={styles.serialBox}>
+            <Text style={styles.serialAuto}>{autoSerial(item)}</Text>
+            {item.serialNumber ? (
+              <Text style={styles.serialCustom}>#{item.serialNumber}</Text>
+            ) : null}
           </View>
-        ) : (
-          <TouchableOpacity
-            style={styles.approveBtn}
-            onPress={() => openPaymentConfirm(item)}
-          >
-            <Text style={styles.approveText}>Onayla</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {today && (
+              <View style={styles.todayBadge}>
+                <Text style={styles.todayText}>Bugün</Text>
+              </View>
+            )}
+            {paid ? (
+              <View style={styles.statusPaid}>
+                <Text style={styles.statusPaidText}>✔ Ödendi</Text>
+              </View>
+            ) : (
+              <View style={styles.statusPending}>
+                <Text style={styles.statusPendingText}>⏳ Bekliyor</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* Tarih + Plaka */}
+        <View style={styles.haulCardRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.haulDateText}>{formatHaulDate(item.timeOfHaul)}</Text>
+            <Text style={styles.haulPlateText}>{item.plateNumber}</Text>
+          </View>
+          {/* Tonaj + Ödeme Badge */}
+          <View style={{ alignItems: 'flex-end', gap: 4 }}>
+            {item.tonage > 0 && (
+              <Text style={styles.tonageText}>{item.tonage} kg</Text>
+            )}
+            {item.cashAmount > 0 && (
+              <View style={styles.cashBadge}>
+                <Text style={styles.cashBadgeText}>{item.cashAmount.toLocaleString('tr-TR')} ₺</Text>
+              </View>
+            )}
+            {item.fuelAmount > 0 && (
+              <View style={styles.fuelBadge}>
+                <Text style={styles.fuelBadgeText}>{item.fuelAmount.toLocaleString('tr-TR')} Lt</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* Yükleme → Döküm */}
+        <View style={styles.haulCardRow}>
+          <Text style={styles.haulSiteLabel} numberOfLines={1}>
+            📍 {item.jobSiteName || item.companyName || '-'}
+          </Text>
+          {item.dumpLocation ? (
+            <Text style={styles.haulDumpText} numberOfLines={1}>
+              → {item.dumpLocation}
+            </Text>
+          ) : null}
+        </View>
+
+        {/* Not */}
+        {item.note ? (
+          <Text style={styles.haulNoteText} numberOfLines={1}>💬 {item.note}</Text>
+        ) : null}
+
+        {/* Alt Butonlar */}
+        <View style={styles.haulCardActions}>
+          <TouchableOpacity style={styles.haulFisBtn} onPress={() => openReceipt(item)}>
+            <Text style={styles.haulFisBtnText}>👁 Fiş</Text>
           </TouchableOpacity>
-        )}
+
+          {!paid ? (
+            <TouchableOpacity
+              style={styles.haulApproveBtn}
+              onPress={() => openPaymentConfirm(item)}
+            >
+              <Text style={styles.haulApproveBtnText}>✔ Onayla</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.haulApprovedTag}>
+              <Text style={styles.haulApprovedTagText}>✔ Onaylı</Text>
+            </View>
+          )}
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -652,6 +736,26 @@ export default function SupplierVehicles() {
             </View>
           </View>
 
+          {/* Arama kutusu */}
+          {!haulsLoading && !haulsError && hauls.length > 0 && (
+            <View style={styles.searchBox}>
+              <Text style={styles.searchIcon}>🔍</Text>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Plaka veya şantiye ara..."
+                placeholderTextColor="#aaa"
+                value={haulFilter}
+                onChangeText={setHaulFilter}
+                autoCapitalize="characters"
+              />
+              {haulFilter.length > 0 && (
+                <TouchableOpacity onPress={() => setHaulFilter('')}>
+                  <Text style={styles.searchClear}>✕</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
           {haulsLoading ? (
             <View style={styles.centerBox}>
               <Text style={styles.loadingText}>Seferler yükleniyor...</Text>
@@ -669,25 +773,27 @@ export default function SupplierVehicles() {
               <Text style={styles.emptyText}>Henüz sefer kaydı yok.</Text>
             </View>
           ) : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <View style={{ width: 535 }}>
-                <View style={styles.tableHeader}>
-                  <Text style={[styles.hCell, { width: 55 }]}>Seri</Text>
-                  <Text style={[styles.hCell, { width: 90 }]}>Tarih</Text>
-                  <Text style={[styles.hCell, { width: 100 }]}>Plaka</Text>
-                  <Text style={[styles.hCell, { width: 90 }]}>Şantiye</Text>
-                  <Text style={[styles.hCell, { width: 75 }]}>Ödeme</Text>
-                  <Text style={[styles.hCell, { width: 40 }]}>Fiş</Text>
-                  <Text style={[styles.hCell, { width: 75 }]}>Onay</Text>
+            <FlatList
+              data={hauls.filter(h => {
+                if (!haulFilter) return true;
+                const q = haulFilter.toLowerCase();
+                return (
+                  h.plateNumber.toLowerCase().includes(q) ||
+                  (h.jobSiteName || '').toLowerCase().includes(q) ||
+                  (h.dumpLocation || '').toLowerCase().includes(q) ||
+                  (h.serialNumber || '').toLowerCase().includes(q)
+                );
+              })}
+              keyExtractor={i => i.id}
+              renderItem={renderTrip}
+              contentContainerStyle={{ paddingBottom: 20, gap: 10 }}
+              showsVerticalScrollIndicator={false}
+              ListEmptyComponent={
+                <View style={styles.centerBox}>
+                  <Text style={styles.emptyText}>Arama sonucu bulunamadı.</Text>
                 </View>
-                <FlatList
-                  data={hauls}
-                  keyExtractor={i => i.id}
-                  renderItem={renderTrip}
-                  scrollEnabled={false}
-                />
-              </View>
-            </ScrollView>
+              }
+            />
           )}
         </>
       )}
@@ -1226,26 +1332,6 @@ const styles = StyleSheet.create({
   vehicleInfo: { fontSize: 12, color: '#444' },
   vehicleDate: { fontSize: 11, color: '#999', marginTop: 4 },
 
-  tableHeader: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderColor: '#ccc',
-    paddingBottom: 6,
-  },
-
-  hCell: { fontSize: 11, fontWeight: '700', textAlign: 'center' },
-
-  row: {
-    flexDirection: 'row',
-    paddingVertical: 10,
-    borderBottomWidth: 0.5,
-    borderColor: '#ddd',
-    backgroundColor: '#fff',
-  },
-
-  cell: { fontSize: 11, textAlign: 'center' },
-  cellCenter: { alignItems: 'center', justifyContent: 'center' },
-
   approveBtn: {
     backgroundColor: YELLOW,
     width: 60,
@@ -1256,6 +1342,265 @@ const styles = StyleSheet.create({
   },
 
   approveText: { fontSize: 11, fontWeight: '700' },
+
+  // Arama kutusu
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E8E8E8',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+
+  searchIcon: { fontSize: 14, marginRight: 8 },
+
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: DARK,
+  },
+
+  searchClear: {
+    fontSize: 14,
+    color: '#aaa',
+    paddingHorizontal: 4,
+  },
+
+  // Haul Card
+  haulCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+    borderLeftWidth: 4,
+    borderLeftColor: 'transparent',
+  },
+
+  haulCardPaid: {
+    backgroundColor: '#fff',
+    borderLeftColor: '#4CAF50',
+  },
+
+  haulCardUnpaid: {
+    backgroundColor: '#FFFDE7',
+    borderLeftColor: '#FFC107',
+  },
+
+  haulCardToday: {
+    borderLeftColor: '#1565C0',
+  },
+
+  haulCardTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+
+  serialBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+
+  serialAuto: {
+    fontSize: 11,
+    fontFamily: 'monospace',
+    color: '#555',
+    fontWeight: '600',
+    backgroundColor: '#F0F0F0',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+
+  serialCustom: {
+    fontSize: 11,
+    color: '#1565C0',
+    fontWeight: '700',
+  },
+
+  todayBadge: {
+    backgroundColor: '#E3F2FD',
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+
+  todayText: {
+    fontSize: 10,
+    color: '#1565C0',
+    fontWeight: '700',
+  },
+
+  statusPaid: {
+    backgroundColor: '#E8F5E9',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+
+  statusPaidText: {
+    fontSize: 11,
+    color: '#2E7D32',
+    fontWeight: '700',
+  },
+
+  statusPending: {
+    backgroundColor: '#FFF8E1',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: '#FFC107',
+  },
+
+  statusPendingText: {
+    fontSize: 11,
+    color: '#E65100',
+    fontWeight: '700',
+  },
+
+  haulCardRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 6,
+  },
+
+  haulDateText: {
+    fontSize: 12,
+    color: '#888',
+    marginBottom: 2,
+  },
+
+  haulPlateText: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: DARK,
+    letterSpacing: 1,
+  },
+
+  tonageText: {
+    fontSize: 11,
+    color: '#888',
+    textAlign: 'right',
+  },
+
+  cashBadge: {
+    backgroundColor: '#E8F5E9',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: '#A5D6A7',
+  },
+
+  cashBadgeText: {
+    fontSize: 12,
+    color: '#2E7D32',
+    fontWeight: '700',
+  },
+
+  fuelBadge: {
+    backgroundColor: '#FFF8E1',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: '#FFD54F',
+  },
+
+  fuelBadgeText: {
+    fontSize: 12,
+    color: '#E65100',
+    fontWeight: '700',
+  },
+
+  haulSiteLabel: {
+    fontSize: 12,
+    color: '#555',
+    fontWeight: '600',
+    flex: 1,
+  },
+
+  haulDumpText: {
+    fontSize: 12,
+    color: '#888',
+    flex: 1,
+    textAlign: 'right',
+  },
+
+  haulNoteText: {
+    fontSize: 11,
+    color: '#888',
+    fontStyle: 'italic',
+    marginBottom: 6,
+  },
+
+  haulCardActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+  },
+
+  haulFisBtn: {
+    borderWidth: 1.5,
+    borderColor: '#1565C0',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+
+  haulFisBtnText: {
+    color: '#1565C0',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
+  haulApproveBtn: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+  },
+
+  haulApproveBtnText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+
+  haulApprovedTag: {
+    backgroundColor: '#E8F5E9',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+
+  haulApprovedTagText: {
+    color: '#2E7D32',
+    fontSize: 12,
+    fontWeight: '700',
+  },
 
   modalOverlay: {
     flex: 1,
