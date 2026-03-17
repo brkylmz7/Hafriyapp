@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import {
   Pressable,
   Alert,
   Image,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppSelector } from '../../hooks';
@@ -82,6 +83,7 @@ export default function SupplierVehicles() {
   // Seferler (Hauls)
   const [hauls, setHauls] = useState<HaulApi[]>([]);
   const [haulsLoading, setHaulsLoading] = useState(false);
+  const [haulsRefreshing, setHaulsRefreshing] = useState(false);
   const [haulsError, setHaulsError] = useState<string | null>(null);
   const [confirmPaymentModal, setConfirmPaymentModal] = useState(false);
   const [paymentHaul, setPaymentHaul] = useState<HaulApi | null>(null);
@@ -472,7 +474,6 @@ export default function SupplierVehicles() {
       setHaulsLoading(true);
       setHaulsError(null);
       const data = await getHauls(token);
-      // En yeni tarih üstte
       const sorted = [...data].sort(
         (a, b) => new Date(b.timeOfHaul).getTime() - new Date(a.timeOfHaul).getTime()
       );
@@ -483,6 +484,23 @@ export default function SupplierVehicles() {
       setHaulsLoading(false);
     }
   };
+
+  const onHaulsRefresh = useCallback(async () => {
+    if (!token) return;
+    setHaulsRefreshing(true);
+    try {
+      const data = await getHauls(token);
+      const sorted = [...data].sort(
+        (a, b) => new Date(b.timeOfHaul).getTime() - new Date(a.timeOfHaul).getTime()
+      );
+      setHauls(sorted);
+      setHaulsError(null);
+    } catch {
+      setHaulsError('Seferler yüklenemedi');
+    } finally {
+      setHaulsRefreshing(false);
+    }
+  }, [token]);
 
   const handleConfirmPayment = async () => {
     if (!token || !paymentHaul) return;
@@ -696,9 +714,19 @@ export default function SupplierVehicles() {
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={styles.addBtn} onPress={() => setAddVehicleModal(true)}>
-          <Text style={styles.addBtnText}>＋ Yeni Araç Ekle</Text>
-        </TouchableOpacity>
+        {activeTab === 'trips' ? (
+          <TouchableOpacity
+            style={styles.addBtn}
+            onPress={onHaulsRefresh}
+            disabled={haulsRefreshing}
+          >
+            <Text style={styles.addBtnText}>{haulsRefreshing ? '⏳ Yenileniyor...' : '🔄 Yenile'}</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity style={styles.addBtn} onPress={() => setAddVehicleModal(true)}>
+            <Text style={styles.addBtnText}>＋ Yeni Araç Ekle</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* ================= VEHICLES ================= */}
@@ -789,6 +817,14 @@ export default function SupplierVehicles() {
               renderItem={renderTrip}
               contentContainerStyle={{ paddingBottom: 20, gap: 10 }}
               showsVerticalScrollIndicator={false}
+              refreshControl={
+                <RefreshControl
+                  refreshing={haulsRefreshing}
+                  onRefresh={onHaulsRefresh}
+                  colors={['#1976D2']}
+                  tintColor="#1976D2"
+                />
+              }
               ListEmptyComponent={
                 <View style={styles.centerBox}>
                   <Text style={styles.emptyText}>Arama sonucu bulunamadı.</Text>
