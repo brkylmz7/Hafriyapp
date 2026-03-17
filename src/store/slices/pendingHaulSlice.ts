@@ -1,14 +1,18 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
 export type PendingHaul = {
-  localId: string;       // yerel takip için benzersiz id
+  localId: string;           // yerel takip için benzersiz id
   jobSiteId: string;
   plateNumber: string;
-  paymentType: number;   // 0=Nakit, 1=Yakıt
+  paymentType: number;       // 0=Nakit, 1=Yakıt, 2=Her ikisi
   tonage: number;
+  cashAmount: number;
+  fuelAmount: number;
+  dumpLocation: string;
   note: string;
-  timeOfHaul: string;    // ISO string — sefer anı
-  createdAt: string;     // kuyruğa eklenme zamanı
+  isPrintedReceipt: boolean;
+  timeOfHaul: string;        // ISO string — sefer anı
+  createdAt: string;         // kuyruğa eklenme zamanı
 };
 
 interface PendingHaulState {

@@ -75,10 +75,14 @@ export const getHaulsByVehicle = async (vehicleId: string, token: string): Promi
 export type CreateHaulParams = {
   jobSiteId: string;
   plateNumber: string;
-  paymentType: number; // 0=Nakit, 1=Yakıt
+  paymentType: number; // 0=Nakit, 1=Yakıt, 2=Her ikisi
   tonage?: number;
+  cashAmount?: number;
+  fuelAmount?: number;
+  dumpLocation?: string;
   note?: string;
   timeOfHaul?: string; // ISO, yoksa şu an
+  isPrintedReceipt?: boolean;
 };
 
 // Yeni sefer oluştur
@@ -92,9 +96,13 @@ export const createHaul = async (params: CreateHaulParams, token: string): Promi
         plateNumber: params.plateNumber.replace(/\s/g, '').toUpperCase(),
         paymentType: params.paymentType,
         tonage: params.tonage ?? 0,
+        cashAmount: params.cashAmount ?? 0,
+        fuelAmount: params.fuelAmount ?? 0,
+        dumpLocation: params.dumpLocation ?? '',
         note: params.note ?? '',
         timeOfHaul: params.timeOfHaul ?? new Date().toISOString(),
         isPaid: false,
+        isPrintedReceipt: params.isPrintedReceipt ?? false,
       },
       {
         headers: {
