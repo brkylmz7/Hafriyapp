@@ -19,6 +19,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppSelector } from '../../hooks';
 import { deleteVehicle, getVehicles, updateVehicle, createVehicle, assignDriver, getVehicleDriver, removeDriver } from '../../services/vehicleService';
+import { getHauls, updateHaulPayment, HaulApi } from '../../services/haulService';
 
 const YELLOW = '#FFD500';
 const GRAY = '#F4F4F4';
@@ -43,24 +44,7 @@ type VehicleUI = {
 };
 
 
-const trips = [
-  {
-    id: '326',
-    date: '06.12.2025',
-    plate: '34 FBD 641',
-    company: 'ÇEKİÇ',
-    price: '45₺',
-    approved: false,
-  },
-  {
-    id: '327',
-    date: '06.12.2025',
-    plate: '34 ABD 361',
-    company: 'KAYA',
-    price: '2500₺',
-    approved: true,
-  },
-];
+// Sabit trips kaldırıldı — gerçek API verisi kullanılıyor
 
 /* ================= SCREEN ================= */
 
@@ -83,15 +67,28 @@ export default function SupplierVehicles() {
   const [newPlate, setNewPlate] = useState('');
   const [newDriverPhone, setNewDriverPhone] = useState('');
 
-  const [driver, setDriver] = useState<any>({
-    name: 'Burak Yılmaz',
-    phone: '+905555555555',
-  }); // null olursa şoför yok
+  const [driver, setDriver] = useState<{
+    id: string;
+    name: string;
+    phone: string;
+  } | null>(null); // null olursa şoför yok
 
   const [driverRemoved, setDriverRemoved] = useState(false);
 
   const [receiptVisible, setReceiptVisible] = useState(false);
-  const [selectedTrip, setSelectedTrip] = useState<any>(null);
+  const [selectedTrip, setSelectedTrip] = useState<HaulApi | null>(null);
+
+  // Seferler (Hauls)
+  const [hauls, setHauls] = useState<HaulApi[]>([]);
+  const [haulsLoading, setHaulsLoading] = useState(false);
+  const [haulsError, setHaulsError] = useState<string | null>(null);
+  const [confirmPaymentModal, setConfirmPaymentModal] = useState(false);
+  const [paymentHaul, setPaymentHaul] = useState<HaulApi | null>(null);
+  const [paymentType, setPaymentType] = useState<0 | 1>(0); // 0=Nakit, 1=Yakıt
+  const [paymentCash, setPaymentCash] = useState('');
+  const [paymentFuel, setPaymentFuel] = useState('');
+  const [paymentSaving, setPaymentSaving] = useState(false);
+
   const token = useAppSelector(state => state.auth.token);
   const user = useAppSelector(state => state.auth.user);
   const companyId = useAppSelector(state => state.auth.companyId) || user?.companyId;
@@ -171,11 +168,11 @@ export default function SupplierVehicles() {
   };
 
   const handleRemoveDriver = async () => {
-    if (!token || !selectedVehicle?.id) return;
+    if (!token || !selectedVehicle?.id || !driver?.id) return;
 
     try {
       setSaving(true);
-      await removeDriver(selectedVehicle.id, token);
+      await removeDriver(selectedVehicle.id, driver.id, token);
 
       setDriver(null);
       setDriverRemoved(true);
@@ -347,8 +344,15 @@ export default function SupplierVehicles() {
     try {
       const driverData = await getVehicleDriver(item.id, token);
       if (driverData) {
+        // API: { id, userId, phoneNumber, displayName, firstName, lastName }
+        const displayName =
+          driverData.displayName ||
+          [driverData.firstName, driverData.lastName].filter(Boolean).join(' ') ||
+          driverData.phoneNumber;
+
         setDriver({
-          name: driverData.displayName || driverData.phoneNumber,
+          id: driverData.id || driverData.userId || '',
+          name: displayName,
           phone: driverData.phoneNumber,
         });
       } else {
@@ -377,9 +381,40 @@ export default function SupplierVehicles() {
     );
   };
 
-  const openReceipt = (item: any) => {
+  const openReceipt = (item: HaulApi) => {
     setSelectedTrip(item);
     setReceiptVisible(true);
+  };
+
+  const openPaymentConfirm = (item: HaulApi) => {
+    setPaymentHaul(item);
+    setPaymentType(item.paymentType === 1 ? 1 : 0);
+    setPaymentCash(item.cashAmount > 0 ? String(item.cashAmount) : '');
+    setPaymentFuel(item.fuelAmount > 0 ? String(item.fuelAmount) : '');
+    setConfirmPaymentModal(true);
+  };
+
+  const formatHaulDate = (iso: string) => {
+    if (!iso) return '-';
+    const d = new Date(iso);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    const hour = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${day}.${month}.${year} ${hour}:${min}`;
+  };
+
+  const paymentLabel = (haul: HaulApi) => {
+    if (haul.paymentType === 0) return haul.cashAmount > 0 ? `${haul.cashAmount}₺` : 'Nakit';
+    if (haul.paymentType === 1) return haul.fuelAmount > 0 ? `${haul.fuelAmount}Lt` : 'Yakıt';
+    if (haul.paymentType === 2) {
+      const parts = [];
+      if (haul.cashAmount > 0) parts.push(`${haul.cashAmount}₺`);
+      if (haul.fuelAmount > 0) parts.push(`${haul.fuelAmount}Lt`);
+      return parts.length > 0 ? parts.join('+') : 'Nakit+Yakıt';
+    }
+    return '-';
   };
 
   const fetchVehicles = async () => {
@@ -429,8 +464,57 @@ export default function SupplierVehicles() {
     }
   };
 
+  const fetchHauls = async () => {
+    if (!token) return;
+    try {
+      setHaulsLoading(true);
+      setHaulsError(null);
+      const data = await getHauls(token);
+      // En yeni tarih üstte
+      const sorted = [...data].sort(
+        (a, b) => new Date(b.timeOfHaul).getTime() - new Date(a.timeOfHaul).getTime()
+      );
+      setHauls(sorted);
+    } catch {
+      setHaulsError('Seferler yüklenemedi');
+    } finally {
+      setHaulsLoading(false);
+    }
+  };
+
+  const handleConfirmPayment = async () => {
+    if (!token || !paymentHaul) return;
+    try {
+      setPaymentSaving(true);
+      await updateHaulPayment(
+        {
+          haulId: paymentHaul.id,
+          isPaid: true,
+          paymentType,
+          cashAmount: paymentType === 0 ? parseFloat(paymentCash) || 0 : 0,
+          fuelAmount: paymentType === 1 ? parseFloat(paymentFuel) || 0 : 0,
+          tonage: paymentHaul.tonage,
+          dumpLocation: paymentHaul.dumpLocation,
+        },
+        token
+      );
+      setConfirmPaymentModal(false);
+      setPaymentHaul(null);
+      setPaymentCash('');
+      setPaymentFuel('');
+      Alert.alert('Başarılı', 'Ödeme onaylandı.');
+      fetchHauls();
+    } catch (error: any) {
+      const msg = error.response?.data?.message || 'Ödeme onaylanırken hata oluştu.';
+      Alert.alert('Hata', msg);
+    } finally {
+      setPaymentSaving(false);
+    }
+  };
+
   useEffect(() => {
     fetchVehicles();
+    fetchHauls();
   }, [token]);
 
 
@@ -463,28 +547,35 @@ export default function SupplierVehicles() {
     </View>
   );
 
-  const renderTrip = ({ item }: any) => (
-    <View style={styles.row}>
-      <Text style={[styles.cell, { width: 50 }]}>…{item.id}</Text>
-      <Text style={[styles.cell, { width: 90 }]}>{item.date}</Text>
-      <Text style={[styles.cell, { width: 95 }]}>{item.plate}</Text>
-      <Text style={[styles.cell, { width: 80 }]} numberOfLines={1}>
-        {item.company}
+  const renderTrip = ({ item }: { item: HaulApi }) => (
+    <View style={[styles.row, item.isPaid && { backgroundColor: '#F0FFF4' }]}>
+      <Text style={[styles.cell, { width: 55 }]} numberOfLines={1}>
+        {item.serialNumber ? `#${item.serialNumber}` : item.id.substring(0, 6).toUpperCase()}
       </Text>
-      <Text style={[styles.cell, { width: 70 }]}>{item.price}</Text>
+      <Text style={[styles.cell, { width: 90 }]}>{formatHaulDate(item.timeOfHaul)}</Text>
+      <Text style={[styles.cell, { width: 100 }]} numberOfLines={1}>{item.plateNumber}</Text>
+      <Text style={[styles.cell, { width: 90 }]} numberOfLines={1}>
+        {item.jobSiteName || item.companyName || '-'}
+      </Text>
+      <Text style={[styles.cell, { width: 75 }]}>{paymentLabel(item)}</Text>
 
       <TouchableOpacity
         style={[styles.cellCenter, { width: 40 }]}
         onPress={() => openReceipt(item)}
       >
-        <Text>📄</Text>
+        <Text style={{ fontSize: 16 }}>📄</Text>
       </TouchableOpacity>
 
-      <View style={{ width: 70, alignItems: 'center' }}>
-        {item.approved ? (
-          <Text style={{ fontSize: 16 }}>✔</Text>
+      <View style={{ width: 75, alignItems: 'center' }}>
+        {item.isPaid ? (
+          <View style={styles.paidBadge}>
+            <Text style={styles.paidText}>✔ Ödendi</Text>
+          </View>
         ) : (
-          <TouchableOpacity style={styles.approveBtn}>
+          <TouchableOpacity
+            style={styles.approveBtn}
+            onPress={() => openPaymentConfirm(item)}
+          >
             <Text style={styles.approveText}>Onayla</Text>
           </TouchableOpacity>
         )}
@@ -515,7 +606,7 @@ export default function SupplierVehicles() {
             onPress={() => setActiveTab('trips')}
           >
             <Text style={activeTab === 'trips' ? styles.tabTextActive : styles.tabText}>
-              Seferler ({trips.length})
+              Seferler ({hauls.length})
             </Text>
           </TouchableOpacity>
         </View>
@@ -540,21 +631,65 @@ export default function SupplierVehicles() {
 
       {/* ================= TRIPS ================= */}
       {activeTab === 'trips' && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <View style={{ width: 520 }}>
-            <View style={styles.tableHeader}>
-              <Text style={[styles.hCell, { width: 50 }]}>Seri</Text>
-              <Text style={[styles.hCell, { width: 90 }]}>Tarih</Text>
-              <Text style={[styles.hCell, { width: 95 }]}>Plaka</Text>
-              <Text style={[styles.hCell, { width: 80 }]}>Firma</Text>
-              <Text style={[styles.hCell, { width: 70 }]}>Ödeme</Text>
-              <Text style={[styles.hCell, { width: 40 }]}>Fiş</Text>
-              <Text style={[styles.hCell, { width: 70 }]}>Onay</Text>
+        <>
+          {/* Özet Kartları */}
+          <View style={styles.haulSummaryRow}>
+            <View style={styles.haulSummaryCard}>
+              <Text style={styles.haulSummaryNum}>{hauls.length}</Text>
+              <Text style={styles.haulSummaryLabel}>Toplam</Text>
             </View>
-
-            <FlatList data={trips} keyExtractor={i => i.id} renderItem={renderTrip} />
+            <View style={[styles.haulSummaryCard, { backgroundColor: '#EAF7EA' }]}>
+              <Text style={[styles.haulSummaryNum, { color: '#2E7D32' }]}>
+                {hauls.filter(h => h.isPaid).length}
+              </Text>
+              <Text style={styles.haulSummaryLabel}>Ödendi</Text>
+            </View>
+            <View style={[styles.haulSummaryCard, { backgroundColor: '#FFF4E5' }]}>
+              <Text style={[styles.haulSummaryNum, { color: '#E65100' }]}>
+                {hauls.filter(h => !h.isPaid).length}
+              </Text>
+              <Text style={styles.haulSummaryLabel}>Bekliyor</Text>
+            </View>
           </View>
-        </ScrollView>
+
+          {haulsLoading ? (
+            <View style={styles.centerBox}>
+              <Text style={styles.loadingText}>Seferler yükleniyor...</Text>
+            </View>
+          ) : haulsError ? (
+            <View style={styles.centerBox}>
+              <Text style={styles.errorText}>{haulsError}</Text>
+              <TouchableOpacity style={styles.retryBtn} onPress={fetchHauls}>
+                <Text style={styles.retryText}>Tekrar Dene</Text>
+              </TouchableOpacity>
+            </View>
+          ) : hauls.length === 0 ? (
+            <View style={styles.centerBox}>
+              <Text style={{ fontSize: 40 }}>🚛</Text>
+              <Text style={styles.emptyText}>Henüz sefer kaydı yok.</Text>
+            </View>
+          ) : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={{ width: 535 }}>
+                <View style={styles.tableHeader}>
+                  <Text style={[styles.hCell, { width: 55 }]}>Seri</Text>
+                  <Text style={[styles.hCell, { width: 90 }]}>Tarih</Text>
+                  <Text style={[styles.hCell, { width: 100 }]}>Plaka</Text>
+                  <Text style={[styles.hCell, { width: 90 }]}>Şantiye</Text>
+                  <Text style={[styles.hCell, { width: 75 }]}>Ödeme</Text>
+                  <Text style={[styles.hCell, { width: 40 }]}>Fiş</Text>
+                  <Text style={[styles.hCell, { width: 75 }]}>Onay</Text>
+                </View>
+                <FlatList
+                  data={hauls}
+                  keyExtractor={i => i.id}
+                  renderItem={renderTrip}
+                  scrollEnabled={false}
+                />
+              </View>
+            </ScrollView>
+          )}
+        </>
       )}
 
       {/* ================= VEHICLE DETAIL MODAL ================= */}
@@ -732,16 +867,212 @@ export default function SupplierVehicles() {
       {/* ================= RECEIPT MODAL ================= */}
       <Modal visible={receiptVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={styles.detailCard}>
-            <Text style={styles.detailPlate}>Sefer Fişi</Text>
-            <Text>Plaka: {selectedTrip?.plate}</Text>
-            <Text>Tutar: {selectedTrip?.price}</Text>
+          <View style={styles.receiptCard}>
+            {/* Header */}
+            <View style={styles.receiptHeader}>
+              <Text style={styles.receiptTitle}>🧾 Sefer Fişi</Text>
+              <Pressable onPress={() => setReceiptVisible(false)}>
+                <Text style={styles.closeX}>✕</Text>
+              </Pressable>
+            </View>
 
-            <TouchableOpacity onPress={() => setReceiptVisible(false)}>
-              <Text style={styles.closeText}>Kapat</Text>
-            </TouchableOpacity>
+            {selectedTrip && (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {/* Seri / ID */}
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptLabel}>Seri No</Text>
+                  <Text style={styles.receiptValue}>
+                    {selectedTrip.serialNumber
+                      ? `#${selectedTrip.serialNumber}`
+                      : selectedTrip.id.substring(0, 8).toUpperCase()}
+                  </Text>
+                </View>
+                <View style={styles.receiptDivider} />
+
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptLabel}>Tarih</Text>
+                  <Text style={styles.receiptValue}>{formatHaulDate(selectedTrip.timeOfHaul)}</Text>
+                </View>
+                <View style={styles.receiptDivider} />
+
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptLabel}>Plaka</Text>
+                  <Text style={[styles.receiptValue, { fontWeight: '800' }]}>{selectedTrip.plateNumber}</Text>
+                </View>
+                <View style={styles.receiptDivider} />
+
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptLabel}>Şantiye</Text>
+                  <Text style={styles.receiptValue}>{selectedTrip.jobSiteName || '-'}</Text>
+                </View>
+                <View style={styles.receiptDivider} />
+
+                {selectedTrip.companyName ? (
+                  <>
+                    <View style={styles.receiptRow}>
+                      <Text style={styles.receiptLabel}>Firma</Text>
+                      <Text style={styles.receiptValue}>{selectedTrip.companyName}</Text>
+                    </View>
+                    <View style={styles.receiptDivider} />
+                  </>
+                ) : null}
+
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptLabel}>Döküm Yeri</Text>
+                  <Text style={styles.receiptValue}>{selectedTrip.dumpLocation || '-'}</Text>
+                </View>
+                <View style={styles.receiptDivider} />
+
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptLabel}>Tonaj</Text>
+                  <Text style={styles.receiptValue}>{selectedTrip.tonage} ton</Text>
+                </View>
+                <View style={styles.receiptDivider} />
+
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptLabel}>Ödeme</Text>
+                  <Text style={styles.receiptValue}>{paymentLabel(selectedTrip)}</Text>
+                </View>
+                <View style={styles.receiptDivider} />
+
+                {selectedTrip.driverName ? (
+                  <>
+                    <View style={styles.receiptRow}>
+                      <Text style={styles.receiptLabel}>Şoför</Text>
+                      <Text style={styles.receiptValue}>{selectedTrip.driverName}</Text>
+                    </View>
+                    <View style={styles.receiptDivider} />
+                  </>
+                ) : null}
+
+                {selectedTrip.note ? (
+                  <>
+                    <View style={styles.receiptRow}>
+                      <Text style={styles.receiptLabel}>Not</Text>
+                      <Text style={styles.receiptValue}>{selectedTrip.note}</Text>
+                    </View>
+                    <View style={styles.receiptDivider} />
+                  </>
+                ) : null}
+
+                {/* Ödeme Durumu */}
+                <View style={[
+                  styles.receiptStatusBox,
+                  { backgroundColor: selectedTrip.isPaid ? '#EAF7EA' : '#FFF4E5' }
+                ]}>
+                  <Text style={{
+                    fontWeight: '800',
+                    color: selectedTrip.isPaid ? '#2E7D32' : '#E65100',
+                    fontSize: 15,
+                  }}>
+                    {selectedTrip.isPaid ? '✔ Ödendi' : '⏳ Ödeme Bekliyor'}
+                  </Text>
+                </View>
+
+                {/* Onayla butonu (ödenmemişse) */}
+                {!selectedTrip.isPaid && (
+                  <TouchableOpacity
+                    style={styles.confirmBigBtn}
+                    onPress={() => {
+                      setReceiptVisible(false);
+                      openPaymentConfirm(selectedTrip);
+                    }}
+                  >
+                    <Text style={styles.confirmBigText}>💰 Ödemeyi Onayla</Text>
+                  </TouchableOpacity>
+                )}
+              </ScrollView>
+            )}
           </View>
         </View>
+      </Modal>
+
+      {/* ================= ÖDEME ONAY MODAL ================= */}
+      <Modal visible={confirmPaymentModal} transparent animationType="fade">
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.modalOverlay}>
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              style={{ width: '100%' }}
+            >
+              <View style={styles.paymentCard}>
+                <View style={styles.headerRow}>
+                  <Text style={styles.editTitle}>💰 Ödeme Onayla</Text>
+                  <Pressable onPress={() => setConfirmPaymentModal(false)}>
+                    <Text style={styles.closeX}>✕</Text>
+                  </Pressable>
+                </View>
+
+                {paymentHaul && (
+                  <View style={styles.paymentInfoBox}>
+                    <Text style={styles.paymentInfoPlate}>{paymentHaul.plateNumber}</Text>
+                    <Text style={styles.paymentInfoDate}>{formatHaulDate(paymentHaul.timeOfHaul)}</Text>
+                    <Text style={styles.paymentInfoSite}>{paymentHaul.jobSiteName}</Text>
+                  </View>
+                )}
+
+                {/* Ödeme Türü Seçimi */}
+                <Text style={styles.label}>Ödeme Türü</Text>
+                <View style={styles.payTypeRow}>
+                  <TouchableOpacity
+                    style={[styles.payTypeBtn, paymentType === 0 && styles.payTypeActive]}
+                    onPress={() => setPaymentType(0)}
+                  >
+                    <Text style={[styles.payTypeText, paymentType === 0 && styles.payTypeTextActive]}>
+                      💵 Nakit (₺)
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.payTypeBtn, paymentType === 1 && styles.payTypeActive]}
+                    onPress={() => setPaymentType(1)}
+                  >
+                    <Text style={[styles.payTypeText, paymentType === 1 && styles.payTypeTextActive]}>
+                      ⛽ Yakıt (Lt)
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {paymentType === 0 ? (
+                  <>
+                    <Text style={styles.label}>Nakit Tutar (₺)</Text>
+                    <TextInput
+                      value={paymentCash}
+                      onChangeText={setPaymentCash}
+                      style={styles.plateInput}
+                      keyboardType="decimal-pad"
+                      placeholder="0.00"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.label}>Yakıt Miktarı (Litre)</Text>
+                    <TextInput
+                      value={paymentFuel}
+                      onChangeText={setPaymentFuel}
+                      style={styles.plateInput}
+                      keyboardType="decimal-pad"
+                      placeholder="0.00"
+                    />
+                  </>
+                )}
+
+                <TouchableOpacity
+                  style={[styles.saveBigBtn, paymentSaving && { opacity: 0.6 }]}
+                  onPress={handleConfirmPayment}
+                  disabled={paymentSaving}
+                >
+                  <Text style={styles.saveBigText}>
+                    {paymentSaving ? 'Kaydediliyor...' : '✔ Ödemeyi Onayla'}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity onPress={() => setConfirmPaymentModal(false)}>
+                  <Text style={styles.cancelText}>İptal</Text>
+                </TouchableOpacity>
+              </View>
+            </KeyboardAvoidingView>
+          </View>
+        </TouchableWithoutFeedback>
       </Modal>
       {/* ================= New vehicle MODAL ================= */}
       <Modal visible={addVehicleModal} transparent animationType="fade">
@@ -1240,5 +1571,220 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: '#222',
+  },
+
+  // Haul / Trips stiller
+  haulSummaryRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 12,
+  },
+
+  haulSummaryCard: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+
+  haulSummaryNum: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: DARK,
+  },
+
+  haulSummaryLabel: {
+    fontSize: 11,
+    color: '#777',
+    marginTop: 2,
+  },
+
+  centerBox: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+
+  loadingText: {
+    color: '#777',
+    fontSize: 14,
+  },
+
+  errorText: {
+    color: '#E65100',
+    fontSize: 14,
+    marginBottom: 12,
+  },
+
+  emptyText: {
+    color: '#777',
+    fontSize: 14,
+    marginTop: 10,
+  },
+
+  retryBtn: {
+    backgroundColor: YELLOW,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+
+  retryText: {
+    fontWeight: '700',
+  },
+
+  paidBadge: {
+    backgroundColor: '#EAF7EA',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+
+  paidText: {
+    color: '#2E7D32',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+
+  // Receipt Modal
+  receiptCard: {
+    width: '90%',
+    maxHeight: '85%',
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 20,
+  },
+
+  receiptHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+
+  receiptTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+
+  receiptRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+  },
+
+  receiptLabel: {
+    color: '#888',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+
+  receiptValue: {
+    color: DARK,
+    fontSize: 13,
+    fontWeight: '600',
+    maxWidth: '60%',
+    textAlign: 'right',
+  },
+
+  receiptDivider: {
+    height: 1,
+    backgroundColor: '#F0F0F0',
+  },
+
+  receiptStatusBox: {
+    borderRadius: 12,
+    padding: 14,
+    alignItems: 'center',
+    marginTop: 16,
+    marginBottom: 12,
+  },
+
+  confirmBigBtn: {
+    backgroundColor: '#2E7D32',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 8,
+  },
+
+  confirmBigText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+
+  // Payment Modal
+  paymentCard: {
+    width: '90%',
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 22,
+    alignSelf: 'center',
+  },
+
+  paymentInfoBox: {
+    backgroundColor: GRAY,
+    borderRadius: 12,
+    padding: 14,
+    marginVertical: 14,
+  },
+
+  paymentInfoPlate: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: DARK,
+    marginBottom: 4,
+  },
+
+  paymentInfoDate: {
+    fontSize: 12,
+    color: '#888',
+  },
+
+  paymentInfoSite: {
+    fontSize: 13,
+    color: '#555',
+    marginTop: 2,
+    fontWeight: '600',
+  },
+
+  payTypeRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+    marginBottom: 12,
+  },
+
+  payTypeBtn: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: '#ddd',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+
+  payTypeActive: {
+    borderColor: YELLOW,
+    backgroundColor: '#FFFBEA',
+  },
+
+  payTypeText: {
+    fontWeight: '600',
+    color: '#888',
+  },
+
+  payTypeTextActive: {
+    color: DARK,
+    fontWeight: '800',
   },
 });
