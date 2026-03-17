@@ -14,7 +14,6 @@ import { Platform, ActionSheetIOS, Alert } from 'react-native';
 import { CITIES } from '../constants/cities';
 import { DISTRICTS } from '../constants/districts';
 import { useAppSelector } from '../hooks';
-import { clampRGBA } from 'react-native-reanimated/lib/typescript/Colors';
 const YELLOW = '#FFD500';
 const CARD_BG = '#fff';
 
@@ -122,19 +121,8 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
 
       // Offer/Route Parsing
       if (isKum) {
-        // KUM MICIR
+        // KUM MICIR - all routes are stored in extraOffersJson
         const newRoutes: Route[] = [];
-        // 1. Rota
-        if (initialJob.offer1Name) {
-          const parts = initialJob.offer1Name.split(' - ');
-          newRoutes.push({
-            loadLocation: parts[0] || '',
-            unloadLocation: parts[1] || '',
-            cashPerTon: String(initialJob.offer1Cash || ''),
-            material: '',
-          });
-        }
-        // Diğer rotalar
         if (initialJob.extraOffersJson) {
           try {
             const extras = JSON.parse(initialJob.extraOffersJson);
@@ -142,11 +130,21 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
               newRoutes.push({
                 loadLocation: e.loading,
                 unloadLocation: e.unloading,
-                cashPerTon: String(e.cashPerTon),
-                material: e.material
+                cashPerTon: String(e.cash ?? e.cashPerTon ?? ''),
+                material: e.material || '',
               });
             });
           } catch (e) { }
+        }
+        // Fallback: old format where route[0] was in offer1Name
+        if (newRoutes.length === 0 && initialJob.offer1Name) {
+          const parts = initialJob.offer1Name.split(' - ');
+          newRoutes.push({
+            loadLocation: parts[0] || '',
+            unloadLocation: parts[1] || '',
+            cashPerTon: String(initialJob.offer1Cash || ''),
+            material: '',
+          });
         }
         setRoutes(newRoutes.length > 0 ? newRoutes : [{ loadLocation: '', unloadLocation: '', cashPerTon: '', material: '' }]);
 
@@ -262,55 +260,32 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
     if (isKum !== initialJob.hasSand) return true;
 
     // Offers / Routes Comparison
-    // Tek tek fieldları kontorl etmek yerine, handleSave'deki payload oluşturma mantığına benzer
-    // bir yapı ile "beklenen payload" üretip initial ile kıyaslayabiliriz ama bu ağır olabilir.
-    // Pratik çözüm: parse edilmiş initialRoutes/Offers ile şu anki state'i kıyaslamak.
-
-    // Ancak initialRoutes state'ini tutmadık.
-    // Basitçe: initialJob.offer1Name ve extraOffersJson ile şu anki yapıyı kıyaslayalım.
-
-    // 1. Offer1 Name
-    let currentOffer1Name = '';
-    if (isKum) {
-      if (routes.length > 0) currentOffer1Name = `${routes[0].loadLocation} - ${routes[0].unloadLocation}`;
-    } else {
-      if (offers.length > 0) currentOffer1Name = offers[0].dumpLocation;
-    }
-
-    if (currentOffer1Name !== (initialJob.offer1Name || '')) return true;
-
-    // 2. Offer1 Cash/Fuel
-    let currentOffer1Cash = 0;
-    let currentOffer1Fuel = 0;
-    if (isKum) {
-      if (routes.length > 0) currentOffer1Cash = Number(routes[0].cashPerTon || '0');
-    } else {
+    // 1. Offer1 Name/Cash/Fuel (only for HAFRIYAT)
+    if (!isKum) {
+      let currentOffer1Name = '';
+      let currentOffer1Cash = 0;
+      let currentOffer1Fuel = 0;
       if (offers.length > 0) {
+        currentOffer1Name = offers[0].dumpLocation;
         currentOffer1Cash = Number(offers[0].cash || '0');
         currentOffer1Fuel = Number(offers[0].fuel || '0');
       }
+      if (currentOffer1Name !== (initialJob.offer1Name || '')) return true;
+      if (currentOffer1Cash !== (initialJob.offer1Cash || 0)) return true;
+      if (currentOffer1Fuel !== (initialJob.offer1Fuel || 0)) return true;
     }
 
-    if (currentOffer1Cash !== (initialJob.offer1Cash || 0)) return true;
-    if (currentOffer1Fuel !== (initialJob.offer1Fuel || 0)) return true;
-
-    // 3. ExtraOffers (JSON)
-    // Bu kısım zor, çünkü array order ve stringify formatı önemli.
-    // Şimdilik extraOffersJson string'i ile karşılaştırmak yerine length kontrolü + deep check yapalım.
-
-    // Basitçe stringify yapıp kıyaslamak en kolayı:
-    // (Aşağıdaki logic handleSave'den kopyalandı)
-    let currentExtraJson = null;
+    // 2. ExtraOffers (JSON)
+    let currentExtraJson: string | null = null;
 
     if (isKum) {
-      if (routes.length > 1) {
-        const limitRoutes = routes.slice(1);
+      if (routes.length > 0) {
         currentExtraJson = JSON.stringify(
-          limitRoutes.map((r, idx) => ({
-            offerNo: idx + 2,
+          routes.map((r, idx) => ({
+            offerNo: idx + 1,
             loading: r.loadLocation,
             unloading: r.unloadLocation,
-            cashPerTon: toDecimalOrNull(r.cashPerTon) ?? 0,
+            cash: toDecimalOrNull(r.cashPerTon) ?? 0,
             material: r.material,
           }))
         );
@@ -330,13 +305,8 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
       }
     }
 
-    // Null check
     const initialExtra = initialJob.extraOffersJson || null;
-    // JSON string comparison (basic)
     if (currentExtraJson !== initialExtra) {
-      // Stringler eşit değilse, içerik farklı olabilir.
-      // Ancak JSON.stringify key order garantisi vermez ama React Native JS engine'de genelde insertion order korunur.
-      // Şimdilik true döndür, çok kritik değil.
       return true;
     }
 
@@ -373,24 +343,17 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
       const offer2Fuel: number | null = null;
 
       if (isKum) {
+        // All routes go into extraOffersJson; offer1Name/Cash/Fuel stay null
         if (routes.length > 0) {
-          const r1 = routes[0];
-          offer1Name = `${r1.loadLocation} - ${r1.unloadLocation}`;
-          offer1Cash = toDecimalOrNull(r1.cashPerTon);
-          // Mıcırda yakıt yok
-
-          if (routes.length > 1) {
-            const limitRoutes = routes.slice(1);
-            extraOffersJson = JSON.stringify(
-              limitRoutes.map((r, idx) => ({
-                offerNo: idx + 2,
-                loading: r.loadLocation,
-                unloading: r.unloadLocation,
-                cashPerTon: toDecimalOrNull(r.cashPerTon) ?? 0,
-                material: r.material,
-              }))
-            );
-          }
+          extraOffersJson = JSON.stringify(
+            routes.map((r, idx) => ({
+              offerNo: idx + 1,
+              loading: r.loadLocation,
+              unloading: r.unloadLocation,
+              cash: toDecimalOrNull(r.cashPerTon) ?? 0,
+              material: r.material,
+            }))
+          );
         }
 
       } else {
@@ -787,16 +750,18 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
           <Text style={styles.hint}>Şantiyenin çalışma saat aralığı</Text>
         </Card>
 
-        {/* YAKIT STOKU */}
-        <Card title="Yakıt Stoku">
-          <AppInput
-            placeholder="Şantiyedeki toplam yakıt (Litre)"
-            keyboardType="numeric"
-            value={fuelStock}
-            onChangeText={setFuelStock}
-          />
-          <Text style={styles.hint}>Şantiyede bulunan toplam yakıt miktarı</Text>
-        </Card>
+        {/* YAKIT STOKU - Sadece Hafriyat/Döküm için */}
+        {jobCategory === 'HAFRIYAT' && (
+          <Card title="Yakıt Stoku">
+            <AppInput
+              placeholder="Şantiyedeki toplam yakıt (Litre)"
+              keyboardType="numeric"
+              value={fuelStock}
+              onChangeText={setFuelStock}
+            />
+            <Text style={styles.hint}>Şantiyede bulunan toplam yakıt miktarı</Text>
+          </Card>
+        )}
 
         <View style={{ height: 140 }} />
       </ScrollView>

@@ -7,7 +7,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useAppSelector, useAppDispatch } from '../../hooks';
-import { getJobHauls } from '../../services/jobSiteNewService';
+import { getJobHauls, deleteJobSite } from '../../services/jobSiteNewService';
 import { createHaul, HaulApi } from '../../services/haulService';
 import {
   addPendingHaul,
@@ -40,26 +40,61 @@ type Offer = { name: string; cash: number; fuel: number };
 
 // ── Job'dan teklifleri parse et
 const getOffersFromJob = (job: any): Offer[] => {
+  const isKum = job?.jobType === 1;
   const offers: Offer[] = [];
-  if (job?.offer1Name && (Number(job.offer1Cash) > 0 || Number(job.offer1Fuel) > 0)) {
-    offers.push({ name: job.offer1Name, cash: Number(job.offer1Cash) || 0, fuel: Number(job.offer1Fuel) || 0 });
-  }
-  if (job?.offer2Name && (Number(job.offer2Cash) > 0 || Number(job.offer2Fuel) > 0)) {
-    offers.push({ name: job.offer2Name, cash: Number(job.offer2Cash) || 0, fuel: Number(job.offer2Fuel) || 0 });
-  }
-  try {
-    const extras = JSON.parse(job?.extraOffersJson || '[]');
-    if (Array.isArray(extras)) {
-      extras.forEach((e: any) => {
-        const name = e.Name || e.name;
-        const cash = parseFloat(e.Cash ?? e.cash ?? 0) || 0;
-        const fuel = parseFloat(e.Fuel ?? e.fuel ?? 0) || 0;
-        if (name && (cash > 0 || fuel > 0)) {
-          offers.push({ name, cash, fuel });
-        }
+
+  console.log('🔍 [getOffersFromJob] jobType:', job?.jobType, '| offer1Name:', job?.offer1Name, '| extraOffersJson:', job?.extraOffersJson);
+
+  if (isKum) {
+    // ── Kum/Mıcır: rotalar extraOffersJson içinde {loading, unloading, cash, material}
+    try {
+      const extras = JSON.parse(job?.extraOffersJson || '[]');
+      console.log('📦 [Kum/Mıcır] extraOffersJson parsed:', JSON.stringify(extras));
+      if (Array.isArray(extras)) {
+        extras.forEach((e: any) => {
+          const name = `${e.loading || '-'} → ${e.unloading || '-'}`;
+          const cash = parseFloat(e.Cash ?? e.cash ?? 0) || 0;
+          offers.push({ name, cash, fuel: 0 });
+        });
+      }
+    } catch (err) {
+      console.log('❌ [Kum/Mıcır] extraOffersJson parse hatası:', err);
+    }
+  } else {
+    // ── Hafriyat: offer1Name + offer2Name + extraOffersJson
+    if (job?.offer1Name) {
+      offers.push({
+        name: job.offer1Name,
+        cash: Number(job.offer1Cash) || 0,
+        fuel: Number(job.offer1Fuel) || 0,
       });
     }
-  } catch { }
+    if (job?.offer2Name) {
+      offers.push({
+        name: job.offer2Name,
+        cash: Number(job.offer2Cash) || 0,
+        fuel: Number(job.offer2Fuel) || 0,
+      });
+    }
+    try {
+      const extras = JSON.parse(job?.extraOffersJson || '[]');
+      console.log('📦 [Hafriyat] extraOffersJson parsed:', JSON.stringify(extras));
+      if (Array.isArray(extras)) {
+        extras.forEach((e: any) => {
+          const name = e.Name || e.name || e.dumpLocation || e.DumpLocation;
+          const cash = parseFloat(e.Cash ?? e.cash ?? 0) || 0;
+          const fuel = parseFloat(e.Fuel ?? e.fuel ?? 0) || 0;
+          if (name) {
+            offers.push({ name, cash, fuel });
+          }
+        });
+      }
+    } catch (err) {
+      console.log('❌ [Hafriyat] extraOffersJson parse hatası:', err);
+    }
+  }
+
+  console.log('✅ [getOffersFromJob] toplam teklif sayısı:', offers.length, '| teklifler:', JSON.stringify(offers));
   return offers;
 };
 
@@ -356,6 +391,31 @@ export default function JobDetails() {
     return `${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`;
   };
 
+  // ── İşi Bitir
+  const handleFinishJob = () => {
+    Alert.alert(
+      'İşi Bitir',
+      'Bu işi sonlandırmak istediğinize emin misiniz? Bu işlem geri alınamaz.',
+      [
+        { text: 'Vazgeç', style: 'cancel' },
+        {
+          text: 'Evet, Bitir',
+          style: 'destructive',
+          onPress: async () => {
+            if (!token || !job?.id) return;
+            try {
+              await deleteJobSite(token, job.id);
+              navigation.goBack();
+            } catch (error: any) {
+              const msg = error?.response?.data?.message || 'İş sonlandırılırken bir sorun oluştu.';
+              Alert.alert('Hata', msg);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   // ── Header
   const renderHeader = () => (
     <View style={styles.header}>
@@ -366,6 +426,9 @@ export default function JobDetails() {
         <Text style={styles.headerTitle} numberOfLines={1}>{job?.name || 'Şantiye'}</Text>
         <Text style={styles.headerSubtitle}>{job?.provinceName} • {job?.isActive ? 'Aktif' : 'Pasif'}</Text>
       </View>
+      <TouchableOpacity style={styles.finishBtn} onPress={handleFinishJob}>
+        <Text style={styles.finishBtnText}>İşi Bitir</Text>
+      </TouchableOpacity>
     </View>
   );
 
@@ -606,7 +669,7 @@ export default function JobDetails() {
                       onPress={() => handleAddHaul(false)}
                       disabled={!formPlate || selectedOfferIdx === null || formSaving}
                     >
-                      <Text style={styles.sanalBtnText}>🧾 Sanal Fiş Kes</Text>
+                      <Text style={styles.sanalBtnText}>Sanal Fiş Kes</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.printSubmitBtn, (!formPlate || selectedOfferIdx === null || formSaving) && { opacity: 0.4 }]}
@@ -614,7 +677,7 @@ export default function JobDetails() {
                       disabled={!formPlate || selectedOfferIdx === null || formSaving}
                     >
                       <Text style={styles.printSubmitBtnText}>
-                        {formSaving ? '...' : '🖨 Fiş Kes ve Yazdır'}
+                        {formSaving ? '...' : 'Fiş Kes ve Yazdır'}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -811,6 +874,16 @@ const styles = StyleSheet.create({
   headerContent: { flex: 1, marginLeft: 10 },
   headerTitle: { fontSize: 18, fontWeight: '800', color: '#333' },
   headerSubtitle: { fontSize: 12, color: '#777' },
+  finishBtn: {
+    backgroundColor: '#FFF0EE',
+    borderWidth: 1,
+    borderColor: '#E53935',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginLeft: 8,
+  },
+  finishBtnText: { fontSize: 12, color: '#E53935', fontWeight: '700' },
 
   content: { padding: 16 },
 
@@ -950,7 +1023,7 @@ const styles = StyleSheet.create({
   cancelBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   sanalBtn: { flex: 1, borderWidth: 2, borderColor: '#1976D2', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
   sanalBtnText: { color: '#1976D2', fontWeight: '800', fontSize: 13 },
-  printSubmitBtn: { flex: 1, backgroundColor: '#1976D2', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
+  printSubmitBtn: { flex: 1, backgroundColor: '#1976D2', borderRadius: 10, paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
   printSubmitBtnText: { color: '#fff', fontWeight: '800', fontSize: 13 },
   manualSaveBtn: { flex: 1, backgroundColor: '#4CAF50', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
   manualSaveBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },

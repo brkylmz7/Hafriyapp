@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -8,13 +8,14 @@ import {
   Modal,
   ActivityIndicator,
   Alert,
+  TextInput,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import axios from 'axios';
 
 import NewJobModal from '../../components/NewJobModal';
-import { deleteJobSite } from '../../services/jobSiteNewService';
+import { deleteJobSite, toggleJobSiteActive } from '../../services/jobSiteNewService';
 import { useAppSelector } from '../../hooks';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -66,7 +67,9 @@ export default function MyJobs() {
   const [jobs, setJobs] = useState<JobUI[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [selectedJob, setSelectedJob] = useState<Job | undefined>(undefined); // 🛠 Edit için
+  const [selectedJob, setSelectedJob] = useState<Job | undefined>(undefined);
+  const [search, setSearch] = useState('');
+  const [filterType, setFilterType] = useState<'ALL' | 'HAFRIYAT' | 'KUM'>('ALL');
   const insets = useSafeAreaInsets();
 
   const fetchJobs = async () => {
@@ -127,6 +130,29 @@ export default function MyJobs() {
     }
   };
 
+  const handleToggleActive = (job: JobUI) => {
+    const nextActive = !job.isActive;
+    const msg = nextActive
+      ? 'Bu işi tekrar yayına almak istiyor musunuz?'
+      : 'Bu işi yayından kaldırmak istiyor musunuz?';
+
+    Alert.alert(nextActive ? 'Yayına Al' : 'Yayından Kaldır', msg, [
+      { text: 'Vazgeç', style: 'cancel' },
+      {
+        text: 'Evet',
+        onPress: async () => {
+          if (!token) return;
+          try {
+            await toggleJobSiteActive(token, job.id, nextActive);
+            fetchJobs();
+          } catch (error) {
+            Alert.alert('Hata', 'İşlem sırasında bir sorun oluştu.');
+          }
+        },
+      },
+    ]);
+  };
+
   const handleFinishJob = (jobId: string) => {
     Alert.alert(
       "İşi Bitir",
@@ -156,12 +182,28 @@ export default function MyJobs() {
   };
 
 
-  const renderItem = ({ item }: { item: JobUI }) => (
+  const filteredJobs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return jobs.filter(item => {
+      const matchesType =
+        filterType === 'ALL' ||
+        (filterType === 'KUM' && item.raw.jobType === 1) ||
+        (filterType === 'HAFRIYAT' && item.raw.jobType !== 1);
+      const matchesSearch =
+        !q || item.site.toLowerCase().includes(q);
+      return matchesType && matchesSearch;
+    });
+  }, [jobs, search, filterType]);
+
+  const renderItem = ({ item }: { item: JobUI }) => {
+    const isKum = item.raw.jobType === 1;
+
+    return (
     <View style={styles.card}>
       <View style={{ flex: 1 }}>
         <Text style={styles.site}>{item.site}</Text>
         <Text style={styles.jobType}>
-          {item.raw.jobType === 1 ? 'Kum & Mıcır' : 'Hafriyat Döküm'}
+          {isKum ? 'Kum & Mıcır' : 'Hafriyat Döküm'}
         </Text>
 
         <View style={{ marginTop: '2%' }}>
@@ -173,26 +215,51 @@ export default function MyJobs() {
       </View>
 
       <View style={styles.right}>
-        <View style={styles.fuelBox}>
-          <Text style={styles.fuel}>Kalan: {item.fuelLeft}</Text>
-          <Text style={styles.fuel}>Verilen: {item.fuelGiven}</Text>
-        </View>
+        {/* Hafriyat: yakıt kutusu */}
+        {!isKum && (
+          <View style={styles.infoBox}>
+            <Text style={styles.infoBoxTitle}>Yakıt Durumu</Text>
+            <Text style={styles.infoBoxRow}>Kalan: {item.fuelLeft}</Text>
+            <Text style={styles.infoBoxRow}>Verilen: {item.fuelGiven}</Text>
+          </View>
+        )}
 
+        {/* Kum/Mıcır: malzeme miktarı kutusu */}
+        {isKum && (
+          <View style={styles.infoBox}>
+            <Text style={styles.infoBoxTitle}>Malzeme Miktarı</Text>
+            <Text style={styles.infoBoxLabel}>Verilen:</Text>
+            <Text style={styles.infoBoxValue}>{item.total} Ton</Text>
+            <View style={styles.infoBoxCashRow}>
+              <Text style={styles.infoBoxCash}>Nakit Verilen: {item.paid}₺</Text>
+            </View>
+          </View>
+        )}
+
+        <TouchableOpacity
+          style={[styles.actionBtn, item.isActive ? styles.actionBtnDanger : styles.actionBtnSuccess]}
+          onPress={() => handleToggleActive(item)}
+        >
+          <Text style={item.isActive ? styles.actionBtnDangerText : styles.actionBtnSuccessText}>
+            {item.isActive ? 'Yayından Kaldır' : 'Yayına Al'}
+          </Text>
+        </TouchableOpacity>
         {item.canEdit && (
           <TouchableOpacity style={styles.actionBtn} onPress={() => handleEdit(item.raw)}>
-            <Text>Düzenle</Text>
+            <Text style={styles.actionBtnText}>Düzenle</Text>
           </TouchableOpacity>
         )}
 
-        <TouchableOpacity style={styles.actionBtn} onPress={() => navigation.navigate('JobDetails', { job: item.raw })}>
-          <Text>{item.isActive ? 'İşi Aç' : 'Pasif'}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionBtn} onPress={() => handleFinishJob(item.id)}>
-          <Text>{'İşi Bitir'}</Text>
+        <TouchableOpacity
+          style={styles.actionBtn}
+          onPress={() => navigation.navigate('JobDetails', { job: item.raw })}
+        >
+          <Text style={styles.actionBtnText}>İşi Aç</Text>
         </TouchableOpacity>
       </View>
     </View>
-  );
+    );
+  };
 
   if (loading) {
     return (
@@ -210,13 +277,42 @@ export default function MyJobs() {
       ]}>
         <Text style={styles.title}>FİRMANIZA AİT İŞLER</Text>
 
+        {/* ARAMA */}
+        <View style={styles.searchRow}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="İş adına göre ara..."
+            placeholderTextColor="#999"
+            value={search}
+            onChangeText={setSearch}
+          />
+        </View>
+
+        {/* FİLTRE */}
+        <View style={styles.filterRow}>
+          {(['ALL', 'HAFRIYAT', 'KUM'] as const).map(type => (
+            <TouchableOpacity
+              key={type}
+              style={[styles.filterChip, filterType === type && styles.filterChipActive]}
+              onPress={() => setFilterType(type)}
+            >
+              <Text style={[styles.filterChipText, filterType === type && styles.filterChipTextActive]}>
+                {type === 'ALL' ? 'Tümü' : type === 'HAFRIYAT' ? 'Hafriyat' : 'Kum & Mıcır'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         <FlatList
-          data={jobs}
+          data={filteredJobs}
           keyExtractor={item => item.id}
           renderItem={renderItem}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
-          style={{ marginTop: '5%' }}
+          style={{ marginTop: '2%' }}
+          ListEmptyComponent={
+            <Text style={styles.emptyText}>Sonuç bulunamadı</Text>
+          }
         />
       </View>
 
@@ -289,34 +385,102 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
 
-  fuelBox: {
-    backgroundColor: '#EAF8D8',
+  infoBox: {
+    backgroundColor: '#F7F7F7',
     borderRadius: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
     paddingHorizontal: 10,
     marginBottom: 8,
-    width: 120,
-    height: 40,
+    width: 110,
+    alignItems: 'center',
     elevation: 2,
   },
 
-  fuel: {
+  infoBoxTitle: {
+    fontSize: 11,
+    color: '#555',
+    fontWeight: '700',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+
+  infoBoxLabel: {
+    fontSize: 10,
+    color: '#999',
+    textAlign: 'center',
+  },
+
+  infoBoxValue: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#111',
+    textAlign: 'center',
+  },
+
+  infoBoxCashRow: {
+    marginTop: 4,
+    backgroundColor: '#EFEFEF',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+
+  infoBoxCash: {
+    fontSize: 10,
+    color: '#444',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+
+  infoBoxRow: {
     fontSize: 11,
     color: '#2E6B1F',
     fontWeight: '600',
+    textAlign: 'center',
   },
 
   actionBtn: {
     backgroundColor: '#F1F1F1',
-    paddingHorizontal: 16,
-    paddingVertical: 7,
     borderRadius: 12,
     marginTop: 6,
-    width: 90,
-    height: 35,
+    width: 110,
+    height: 36,
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 2,
+  },
+
+  actionBtnText: {
+    fontSize: 12,
+    color: '#333',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+
+  actionBtnDanger: {
+    backgroundColor: '#FFF0EE',
+    borderWidth: 1,
+    borderColor: '#E53935',
+  },
+
+  actionBtnDangerText: {
+    fontSize: 12,
+    color: '#E53935',
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+
+  actionBtnSuccess: {
+    backgroundColor: '#EDFBF0',
+    borderWidth: 1,
+    borderColor: '#2E7D32',
+  },
+
+  actionBtnSuccessText: {
+    fontSize: 12,
+    color: '#2E7D32',
+    fontWeight: '700',
+    textAlign: 'center',
   },
 
   fab: {
@@ -346,10 +510,66 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingTop: 4, // 🔥 kritik değer
+    paddingTop: 4,
   },
   listContent: {
     paddingHorizontal: 12,
-    paddingBottom: 120, // tabbar + FAB
+    paddingBottom: 120,
+  },
+
+  searchRow: {
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+
+  searchInput: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    height: 42,
+    fontSize: 14,
+    color: '#111',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+
+  filterRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    gap: 8,
+    marginBottom: 4,
+  },
+
+  filterChip: {
+    flex: 1,
+    backgroundColor: '#EFEFEF',
+    borderRadius: 10,
+    paddingVertical: 7,
+    alignItems: 'center',
+  },
+
+  filterChipActive: {
+    backgroundColor: YELLOW,
+  },
+
+  filterChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666',
+  },
+
+  filterChipTextActive: {
+    color: '#111',
+    fontWeight: '800',
+  },
+
+  emptyText: {
+    textAlign: 'center',
+    marginTop: 40,
+    color: '#999',
+    fontSize: 14,
   },
 });

@@ -38,6 +38,24 @@ export const updateJobSite = async (token: string, id: string, data: any) => {
   return res.data;
 };
 
+export const toggleJobSiteActive = async (
+  token: string,
+  id: string,
+  isActive: boolean,
+) => {
+  const res = await axios.put(
+    `${API_URL}/JobSite/${id}/toggle-active?isActive=${isActive}`,
+    {},
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        accept: '*/*',
+      },
+    },
+  );
+  return res.data;
+};
+
 export const deleteJobSite = async (token: string, id: string) => {
   console.log('🗑 DELETE JOB:', id);
   const res = await axios.delete(`${API_URL}/JobSite/${id}`, {

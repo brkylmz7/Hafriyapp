@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CITIES } from '../../constants/cities';
+import { DISTRICTS } from '../../constants/districts';
 import { useAppSelector } from '../../hooks';
 import { getMarketJobs } from '../../services/jobSiteService';
 import { mapJobFromApi } from '../../utils/jobMapper';
@@ -27,21 +28,39 @@ const AllJobs = () => {
   const bottomPadding = tabBarHeight + insets.bottom;
   const [selectedCity, setSelectedCity] = useState<number>(340);
   const [cityOpen, setCityOpen] = useState(false);
+  const [selectedDistricts, setSelectedDistricts] = useState<string[]>([]);
   const [jobs, setJobs] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const token = useAppSelector(state => state.auth.token);
-  /** 🔍 Firma + Şantiye Araması */
+
+  useEffect(() => {
+    setSelectedDistricts([]);
+  }, [selectedCity]);
+
+  const availableDistricts = useMemo(
+    () => DISTRICTS[selectedCity] ?? [],
+    [selectedCity],
+  );
+
+  const toggleDistrict = (value: string) => {
+    setSelectedDistricts(prev =>
+      prev.includes(value) ? prev.filter(d => d !== value) : [...prev, value],
+    );
+  };
+
   const filteredJobs = useMemo(() => {
     const q = search.trim().toLowerCase();
-
-    if (!q) return jobs;
-
-    return jobs.filter(
-      item =>
+    return jobs.filter(item => {
+      const matchesSearch =
+        !q ||
         item.company?.toLowerCase().includes(q) ||
-        item.site?.toLowerCase().includes(q),
-    );
-  }, [search, jobs]); // ✅
+        item.site?.toLowerCase().includes(q);
+      const matchesDistrict =
+        selectedDistricts.length === 0 ||
+        selectedDistricts.includes(item.districtName);
+      return matchesSearch && matchesDistrict;
+    });
+  }, [search, jobs, selectedDistricts]);
 
   useEffect(() => {
     fetchJobs();
@@ -148,21 +167,38 @@ const AllJobs = () => {
         {/* <ActionItem icon={require('../../../assets/icons/dots.png')} label="Ayrıntılar" /> */}
       </View>
 
-      {/* TABLE HEADER */}
-      <View style={styles.tableHeader}>
-        <Text style={styles.th}>Döküm</Text>
-        <Text style={styles.th}>Nakit</Text>
-        <Text style={styles.th}>Mazot</Text>
-      </View>
-
-      {/* TABLE ROWS */}
-      {item.dumps.map((d: any, index: number) => (
-        <View key={index} style={styles.tableRow}>
-          <Text style={styles.td}>{d.place}</Text>
-          <Text style={styles.td}>{d.cash}</Text>
-          <Text style={styles.td}>{d.fuel}</Text>
-        </View>
-      ))}
+      {/* TABLE */}
+      {item.jobType === 1 ? (
+        <>
+          <View style={styles.tableHeader}>
+            <Text style={[styles.th, { flex: 2 }]}>Rota</Text>
+            <Text style={styles.th}>₺/Ton</Text>
+          </View>
+          {item.routes.map((r: any, index: number) => (
+            <View key={index} style={styles.tableRow}>
+              <Text style={[styles.td, { flex: 2 }]} numberOfLines={1}>
+                {r.loading} → {r.unloading}
+              </Text>
+              <Text style={styles.td}>{r.cash}</Text>
+            </View>
+          ))}
+        </>
+      ) : (
+        <>
+          <View style={styles.tableHeader}>
+            <Text style={styles.th}>Döküm</Text>
+            <Text style={styles.th}>Nakit</Text>
+            <Text style={styles.th}>Mazot</Text>
+          </View>
+          {item.dumps.map((d: any, index: number) => (
+            <View key={index} style={styles.tableRow}>
+              <Text style={styles.td}>{d.place}</Text>
+              <Text style={styles.td}>{d.cash}</Text>
+              <Text style={styles.td}>{d.fuel}</Text>
+            </View>
+          ))}
+        </>
+      )}
 
       {/* STATUS */}
       <View style={[styles.statusBar, { backgroundColor: item.statusColor }]}>
@@ -196,55 +232,92 @@ const AllJobs = () => {
           paddingBottom: bottomPadding,
         }}
         ListHeaderComponent={
-          <View style={styles.searchRow}>
-            {/* SEARCH */}
-            <TextInput
-              placeholder="Firma veya şantiye ara"
-              placeholderTextColor="#999"
-              value={search}
-              onChangeText={setSearch}
-              style={styles.searchInput}
-            />
+          <View>
+            <View style={styles.searchRow}>
+              {/* SEARCH */}
+              <TextInput
+                placeholder="Firma veya şantiye ara"
+                placeholderTextColor="#999"
+                value={search}
+                onChangeText={setSearch}
+                style={styles.searchInput}
+              />
 
-            {/* CITY DROPDOWN */}
-            <View>
-              <TouchableOpacity
-                style={styles.citySelect}
-                onPress={openCityPicker}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.cityText}>
-                  {selectedCity
-                    ? CITIES.find(c => c.value === selectedCity)?.label
-                    : 'İl'}
-                </Text>
-                <Image
-                  source={require('../../../assets/icons/down-arrow.png')}
-                  style={{ width: 14, height: 14 }}
-                />
-              </TouchableOpacity>
-
-              {cityOpen && (
-                <View style={styles.cityDropdown}>
-                  <FlatList
-                    data={CITIES}
-                    keyExtractor={item => item.value.toString()}
-                    style={{ maxHeight: 260 }}
-                    renderItem={({ item }) => (
-                      <TouchableOpacity
-                        style={styles.cityItem}
-                        onPress={() => {
-                          setSelectedCity(item.value);
-                          setCityOpen(false);
-                        }}
-                      >
-                        <Text style={styles.cityItemText}>{item.label}</Text>
-                      </TouchableOpacity>
-                    )}
+              {/* CITY DROPDOWN */}
+              <View>
+                <TouchableOpacity
+                  style={styles.citySelect}
+                  onPress={openCityPicker}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.cityText}>
+                    {selectedCity
+                      ? CITIES.find(c => c.value === selectedCity)?.label
+                      : 'İl'}
+                  </Text>
+                  <Image
+                    source={require('../../../assets/icons/down-arrow.png')}
+                    style={{ width: 14, height: 14 }}
                   />
-                </View>
-              )}
+                </TouchableOpacity>
+
+                {cityOpen && (
+                  <View style={styles.cityDropdown}>
+                    <FlatList
+                      data={CITIES}
+                      keyExtractor={item => item.value.toString()}
+                      style={{ maxHeight: 260 }}
+                      renderItem={({ item }) => (
+                        <TouchableOpacity
+                          style={styles.cityItem}
+                          onPress={() => {
+                            setSelectedCity(item.value);
+                            setCityOpen(false);
+                          }}
+                        >
+                          <Text style={styles.cityItemText}>{item.label}</Text>
+                        </TouchableOpacity>
+                      )}
+                    />
+                  </View>
+                )}
+              </View>
             </View>
+
+            {/* İLÇE FİLTRESİ */}
+            {availableDistricts.length > 0 && (
+              <View style={styles.districtWrapper}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.districtScroll}
+                >
+                  {availableDistricts.map(d => {
+                    const active = selectedDistricts.includes(d.value);
+                    return (
+                      <TouchableOpacity
+                        key={d.value}
+                        style={[styles.districtChip, active && styles.districtChipActive]}
+                        onPress={() => toggleDistrict(d.value)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.districtChipText, active && styles.districtChipTextActive]}>
+                          {d.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+                {selectedDistricts.length > 0 && (
+                  <TouchableOpacity
+                    style={styles.clearDistricts}
+                    onPress={() => setSelectedDistricts([])}
+                  >
+                    <Text style={styles.clearDistrictsText}>Temizle</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
           </View>
         }
 
@@ -290,6 +363,41 @@ const AllJobs = () => {
 
               <Text style={styles.modalLabel}>Açıklama:</Text>
               <Text style={styles.modalDescription}>{selectedJob?.description || 'Açıklama yok.'}</Text>
+
+              {/* TEKLİFLER (Hafriyat) */}
+              {selectedJob?.jobType !== 1 && selectedJob?.dumps?.length > 0 && (
+                <>
+                  <Text style={styles.modalLabel}>Teklifler:</Text>
+                  {selectedJob.dumps.map((d: any, i: number) => (
+                    <View key={i} style={styles.offerRow}>
+                      <Text style={styles.offerPlace}>{d.place}</Text>
+                      <Text style={styles.offerCash}>{d.cash}</Text>
+                      {d.fuel !== '-' && <Text style={styles.offerFuel}>{d.fuel}</Text>}
+                    </View>
+                  ))}
+                </>
+              )}
+
+              {/* ROTALAR (Kum/Mıcır) */}
+              {selectedJob?.jobType === 1 && selectedJob?.routes?.length > 0 && (
+                <>
+                  <Text style={styles.modalLabel}>Rotalar:</Text>
+                  {selectedJob.routes.map((r: any, i: number) => (
+                    <View key={i} style={styles.routeBox}>
+                      <Text style={styles.routeLine}>
+                        <Text style={styles.routeKey}>Yükleme: </Text>{r.loading}
+                      </Text>
+                      <Text style={styles.routeLine}>
+                        <Text style={styles.routeKey}>Boşaltma: </Text>{r.unloading}
+                      </Text>
+                      <View style={{ flexDirection: 'row', gap: 16, marginTop: 4 }}>
+                        <Text style={styles.routeCash}>{r.cash}</Text>
+                        {r.material !== '-' && <Text style={styles.routeMaterial}>{r.material}</Text>}
+                      </View>
+                    </View>
+                  ))}
+                </>
+              )}
 
               <Text style={styles.modalLabel}>İletişim:</Text>
               <Text style={styles.modalValue}>{selectedJob?.phone || '-'}</Text>
@@ -509,6 +617,57 @@ const styles = StyleSheet.create({
     color: DARK,
   },
 
+  districtWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingBottom: 8,
+    paddingHorizontal: 16,
+  },
+
+  districtScroll: {
+    gap: 8,
+    paddingRight: 8,
+  },
+
+  districtChip: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#DDD',
+  },
+
+  districtChipActive: {
+    backgroundColor: YELLOW,
+    borderColor: YELLOW,
+  },
+
+  districtChipText: {
+    fontSize: 12,
+    color: '#555',
+    fontWeight: '600',
+  },
+
+  districtChipTextActive: {
+    color: '#111',
+    fontWeight: '800',
+  },
+
+  clearDistricts: {
+    marginLeft: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#FFE0E0',
+    borderRadius: 20,
+  },
+
+  clearDistrictsText: {
+    fontSize: 11,
+    color: '#C62828',
+    fontWeight: '700',
+  },
+
   /* JOB TYPE */
   jobType: {
     fontSize: 12,
@@ -529,7 +688,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 16,
     overflow: 'hidden',
-    maxHeight: '70%',
+    maxHeight: '80%',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -584,5 +743,54 @@ const styles = StyleSheet.create({
   closeBtnText: {
     color: '#fff',
     fontWeight: '600',
+  },
+
+  offerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  offerPlace: {
+    flex: 1,
+    fontSize: 13,
+    color: DARK,
+  },
+  offerCash: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#2E7D32',
+  },
+  offerFuel: {
+    fontSize: 12,
+    color: '#1565C0',
+  },
+
+  routeBox: {
+    backgroundColor: '#F9F9F9',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 6,
+  },
+  routeLine: {
+    fontSize: 13,
+    color: DARK,
+    marginBottom: 2,
+  },
+  routeKey: {
+    fontSize: 12,
+    color: '#999',
+    fontWeight: '600',
+  },
+  routeCash: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#2E7D32',
+  },
+  routeMaterial: {
+    fontSize: 13,
+    color: '#555',
   },
 });
