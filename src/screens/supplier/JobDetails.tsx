@@ -59,7 +59,7 @@ const getOffersFromJob = (job: any): Offer[] => {
         }
       });
     }
-  } catch {}
+  } catch { }
   return offers;
 };
 
@@ -325,7 +325,7 @@ export default function JobDetails() {
     ].filter(Boolean).join('\n');
     try {
       await Share.share({ message: lines });
-    } catch {}
+    } catch { }
   };
 
   const closeAddModal = () => {
@@ -369,28 +369,27 @@ export default function JobDetails() {
     </View>
   );
 
-  // ── Özet kartlar
+  // ── Özet çubuğu (compact tek satır)
   const renderSummaryCards = () => (
-    <View style={styles.cardsRow}>
-      <View style={[styles.card, { backgroundColor: '#F5A623' }]}>
-        <Text style={styles.cardLabel}>Toplam Sefer</Text>
-        <Text style={styles.cardValue}>{hauls.length + pendingForThisJob.length}</Text>
-        <Image source={require('../../../assets/icons/truck.png')} style={[styles.cardIcon, { tintColor: 'white', opacity: 0.5 }]} />
+    <View style={styles.summaryBar}>
+      <View style={styles.summaryItem}>
+        <Text style={styles.summaryValue}>{hauls.length + pendingForThisJob.length}</Text>
+        <Text style={styles.summaryLabel}>Toplam</Text>
       </View>
-      <View style={[styles.card, { backgroundColor: '#4CAF50' }]}>
-        <Text style={styles.cardLabel}>Toplam Tonaj</Text>
-        <Text style={styles.cardValue}>{hauls.reduce((a, h) => a + (h.tonage || 0), 0)} Ton</Text>
-        <Image source={require('../../../assets/icons/layers.png')} style={[styles.cardIcon, { tintColor: 'white', opacity: 0.5 }]} />
+      <View style={styles.summaryDivider} />
+      <View style={styles.summaryItem}>
+        <Text style={[styles.summaryValue, { color: '#4CAF50' }]}>{hauls.reduce((a, h) => a + (h.tonage || 0), 0)}</Text>
+        <Text style={styles.summaryLabel}>Ton</Text>
       </View>
-      <View style={[styles.card, { backgroundColor: '#2196F3' }]}>
-        <Text style={styles.cardLabel}>Ödendi</Text>
-        <Text style={styles.cardValue}>{hauls.filter(h => h.isPaid).length}</Text>
-        <Image source={require('../../../assets/icons/check_circle.png')} style={[styles.cardIcon, { tintColor: 'white', opacity: 0.5 }]} />
+      <View style={styles.summaryDivider} />
+      <View style={styles.summaryItem}>
+        <Text style={[styles.summaryValue, { color: '#1976D2' }]}>{hauls.filter(h => h.isPaid).length}</Text>
+        <Text style={styles.summaryLabel}>Ödendi</Text>
       </View>
-      <View style={[styles.card, { backgroundColor: '#E53935' }]}>
-        <Text style={styles.cardLabel}>Bekliyor</Text>
-        <Text style={styles.cardValue}>{hauls.filter(h => !h.isPaid).length}</Text>
-        <Image source={require('../../../assets/icons/truck.png')} style={[styles.cardIcon, { tintColor: 'white', opacity: 0.5 }]} />
+      <View style={styles.summaryDivider} />
+      <View style={styles.summaryItem}>
+        <Text style={[styles.summaryValue, { color: '#E53935' }]}>{hauls.filter(h => !h.isPaid).length}</Text>
+        <Text style={styles.summaryLabel}>Bekliyor</Text>
       </View>
     </View>
   );
@@ -486,14 +485,14 @@ export default function JobDetails() {
           {/* Liste başlığı + butonlar */}
           <View style={styles.listHeader}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Text style={styles.listTitle}>📃 Son Seferler</Text>
+              <Text style={styles.listTitle}>Son Seferler</Text>
               <TouchableOpacity style={styles.refreshIconBtn} onPress={onRefresh} disabled={refreshing}>
                 <Text style={styles.refreshIconText}>{refreshing ? '⏳' : '🔄'}</Text>
               </TouchableOpacity>
             </View>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <TouchableOpacity style={styles.manualBtn} onPress={() => setManualModal(true)}>
-                <Text style={styles.manualBtnText}>✏ Manuel Ekle</Text>
+                <Text style={styles.manualBtnText}>Manuel Ekle</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.addHaulBtn} onPress={() => setAddModal(true)}>
                 <Text style={styles.addHaulBtnText}>＋ Sefer Gir</Text>
@@ -815,11 +814,15 @@ const styles = StyleSheet.create({
 
   content: { padding: 16 },
 
-  cardsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 },
-  card: { width: '48%', borderRadius: 12, padding: 12, height: 80, justifyContent: 'center', position: 'relative', overflow: 'hidden' },
-  cardLabel: { color: 'rgba(255,255,255,0.85)', fontSize: 11, marginBottom: 2 },
-  cardValue: { color: '#fff', fontSize: 18, fontWeight: '800' },
-  cardIcon: { position: 'absolute', right: 8, bottom: 8, width: 30, height: 30 },
+  summaryBar: {
+    flexDirection: 'row', backgroundColor: '#fff', borderRadius: 14, marginBottom: 12,
+    paddingVertical: 12, paddingHorizontal: 8, alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 6, elevation: 3,
+  },
+  summaryItem: { flex: 1, alignItems: 'center' },
+  summaryValue: { fontSize: 20, fontWeight: '800', color: DARK },
+  summaryLabel: { fontSize: 11, color: '#888', marginTop: 2 },
+  summaryDivider: { width: 1, height: 36, backgroundColor: '#EEEEEE' },
 
   syncBanner: {
     backgroundColor: '#E3F2FD', borderRadius: 12, padding: 12, marginBottom: 12,
@@ -853,7 +856,7 @@ const styles = StyleSheet.create({
 
   haulCard: {
     borderRadius: 14, padding: 14, marginBottom: 10, borderLeftWidth: 4,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.07, shadowRadius: 3, elevation: 2,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.12, shadowRadius: 6, elevation: 4,
   },
   haulCardPaid: { backgroundColor: '#fff', borderLeftColor: '#4CAF50' },
   haulCardUnpaid: { backgroundColor: '#FFFDE7', borderLeftColor: '#FFC107' },
