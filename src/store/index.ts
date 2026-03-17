@@ -3,18 +3,19 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { persistReducer, persistStore } from 'redux-persist';
 
 import counterReducer from './slices/counterSlice';
-import authReducer from './slices/authSlice'; // 🔹 YENİ
+import authReducer from './slices/authSlice';
+import pendingHaulReducer from './slices/pendingHaulSlice';
 
 const rootReducer = combineReducers({
   counter: counterReducer,
-  auth: authReducer, // 🔹 YENİ
+  auth: authReducer,
+  pendingHaul: pendingHaulReducer,
 });
 
 const persistConfig = {
   key: 'root',
   storage: AsyncStorage,
-  whitelist: ['auth', 'counter'], // 🔹 sadece login bilgisini kalıcı tut
-  // counter'ı da saklamak istersen: ['auth', 'counter']
+  whitelist: ['auth', 'counter', 'pendingHaul'], // offline seferleri de sakla
 };
 
 const persistedReducer = persistReducer(persistConfig, rootReducer);

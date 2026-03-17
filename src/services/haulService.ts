@@ -72,6 +72,52 @@ export const getHaulsByVehicle = async (vehicleId: string, token: string): Promi
   }
 };
 
+export type CreateHaulParams = {
+  jobSiteId: string;
+  plateNumber: string;
+  paymentType: number; // 0=Nakit, 1=Yakıt
+  tonage?: number;
+  note?: string;
+  timeOfHaul?: string; // ISO, yoksa şu an
+};
+
+// Yeni sefer oluştur
+export const createHaul = async (params: CreateHaulParams, token: string): Promise<HaulApi> => {
+  try {
+    console.log('🚀 [Haul] createHaul başlıyor:', params.plateNumber);
+    const res = await axios.post(
+      `${API_URL}/Haul`,
+      {
+        jobSiteId: params.jobSiteId,
+        plateNumber: params.plateNumber.replace(/\s/g, '').toUpperCase(),
+        paymentType: params.paymentType,
+        tonage: params.tonage ?? 0,
+        note: params.note ?? '',
+        timeOfHaul: params.timeOfHaul ?? new Date().toISOString(),
+        isPaid: false,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+      }
+    );
+    console.log('✅ [Haul] createHaul success:', res.status);
+    return res.data;
+  } catch (error: any) {
+    console.log('❌ [Haul] createHaul HATA');
+    if (error.response) {
+      console.log('🔴 Status:', error.response.status);
+      console.log('🔴 Data:', error.response.data);
+    } else {
+      console.log('🟡 Network error:', error.message);
+    }
+    throw error;
+  }
+};
+
 export type UpdateHaulPaymentParams = {
   haulId: string;
   isPaid: boolean;
