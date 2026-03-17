@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, ActivityIndicator, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppSelector } from '../../hooks';
 import { getGroupMessages, sendMessage as sendMsgComp } from '../../services/chatService';
 
@@ -12,6 +13,7 @@ export default function CompanyChat() {
   const { group, company } = route.params;
   const title = group?.name || company?.name;
   const groupId = group?.id || company?.id;
+  const insets = useSafeAreaInsets();
 
   const [messages, setMessages] = useState<any[]>([]);
   const [text, setText] = useState('');
@@ -95,7 +97,7 @@ export default function CompanyChat() {
   return (
     <View style={styles.container}>
       {/* 🔙 HEADER */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top, height: 52 + insets.top }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Text style={styles.backText}>‹</Text>
         </TouchableOpacity>
@@ -122,7 +124,7 @@ export default function CompanyChat() {
           keyboardShouldPersistTaps="handled"
         />
 
-        <View style={styles.inputRow}>
+        <View style={[styles.inputRow, { paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, 12) : 12 }]}>
           <TextInput value={text} onChangeText={setText} placeholder="Mesaj yaz..." style={styles.input} />
           <TouchableOpacity style={styles.sendBtn} onPress={handleSendMessage} disabled={sending}>
             {sending ? <ActivityIndicator size="small" color="#000" /> : <Text style={{ fontWeight: '700' }}>Gönder</Text>}
@@ -174,7 +176,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   bubbleText: {
-    fontSize: 13,
+    fontSize: 15,
     color: '#000',
   },
   timeText: {
@@ -219,6 +221,6 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'center',
     fontWeight: '700',
-    fontSize: 14,
+    fontSize: 16,
   },
 });

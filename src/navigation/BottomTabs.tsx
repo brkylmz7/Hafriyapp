@@ -165,7 +165,7 @@ export default function BottomTabs() {
             name="SupplierAllJobs"
             component={SupplierAllJobs}
             options={{
-              title: 'Tüm İşler',
+              title: 'Piyasa İşleri',
               tabBarIcon: ({ focused }) => (
                 <View
                   style={{

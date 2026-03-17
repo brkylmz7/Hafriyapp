@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, FlatList, ActivityIndicator, Image, Modal } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAppSelector } from '../../hooks';
 import { getJobHauls } from '../../services/jobSiteNewService';
@@ -25,6 +25,7 @@ export default function JobDetails() {
     const navigation = useNavigation();
     const route = useRoute<any>();
     const { job } = route.params || {}; // job passed from MyJobs
+    const insets = useSafeAreaInsets();
 
     const token = useAppSelector(state => state.auth.token);
     const [selectedHaul, setSelectedHaul] = useState<Haul | null>(null);
@@ -159,7 +160,7 @@ export default function JobDetails() {
     );
 
     return (
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView style={styles.container} edges={['bottom']}>
             {renderHeader()}
 
             <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
@@ -360,28 +361,28 @@ const styles = StyleSheet.create({
     card: {
         width: '48%', // 2 column
         borderRadius: 12,
-        padding: 16,
-        height: 100, // Fixed height for uniformity
+        padding: 12,
+        height: 85, // Reduced height
         justifyContent: 'center',
         position: 'relative',
         overflow: 'hidden',
     },
     cardLabel: {
         color: 'rgba(255,255,255,0.8)',
-        fontSize: 13,
-        marginBottom: 4,
+        fontSize: 12,
+        marginBottom: 2,
     },
     cardValue: {
         color: '#fff',
-        fontSize: 18,
+        fontSize: 16,
         fontWeight: '800',
     },
     cardIcon: {
         position: 'absolute',
-        right: 10,
-        bottom: 10,
-        width: 40,
-        height: 40,
+        right: 8,
+        bottom: 8,
+        width: 32,
+        height: 32,
     },
     listHeaderContainer: {
         flexDirection: 'row',
@@ -389,7 +390,8 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginBottom: 16,
         backgroundColor: '#fff',
-        padding: 12,
+        paddingVertical: 12,
+        paddingHorizontal: 8,
         borderRadius: 12,
     },
     listTitle: {
@@ -412,13 +414,13 @@ const styles = StyleSheet.create({
     },
     addHaulBtn: {
         backgroundColor: '#F5A623',
-        paddingVertical: 8,
-        paddingHorizontal: 16,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
         borderRadius: 8,
     },
     addHaulBtnText: {
         color: '#fff',
-        fontSize: 13,
+        fontSize: 14,
         fontWeight: '700',
     },
     tableHeader: {

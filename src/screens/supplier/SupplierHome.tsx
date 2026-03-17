@@ -20,6 +20,7 @@ export default function SupplierHome() {
   const [newGroupDesc, setNewGroupDesc] = useState('');
   const [selectedProvinces, setSelectedProvinces] = useState<number[]>([]);
   const [citySearch, setCitySearch] = useState('');
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [creating, setCreating] = useState(false);
 
   useFocusEffect(
@@ -207,12 +208,11 @@ export default function SupplierHome() {
             style={{ width: 12, height: 12, marginLeft: 6, opacity: 0.6 }}
           />
         </TouchableOpacity>
+        {/* GRUP OLUŞTUR BUTONU */}
+        <TouchableOpacity style={styles.createGroupBtn} onPress={() => setCreateModalVisible(true)}>
+          <Text style={styles.createGroupText}>+</Text>
+        </TouchableOpacity>
       </View>
-
-      {/* GRUP OLUŞTUR BUTONU */}
-      <TouchableOpacity style={styles.createGroupBtn} onPress={() => setCreateModalVisible(true)}>
-        <Text style={styles.createGroupText}>+ Grup Oluştur</Text>
-      </TouchableOpacity>
 
       <SectionList
         sections={sections}
@@ -238,6 +238,9 @@ export default function SupplierHome() {
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Grup Oluştur</Text>
+            <TouchableOpacity onPress={() => setCreateModalVisible(false)}>
+              <Text style={{ fontSize: 20, fontWeight: 'bold' }}>✕</Text>
+            </TouchableOpacity>
           </View>
 
           <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
@@ -259,30 +262,79 @@ export default function SupplierHome() {
             />
 
             <Text style={styles.label}>Görünmek İstediğiniz İlleri Seçin *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="İlleri arayın..."
-              value={citySearch}
-              onChangeText={setCitySearch}
-            />
-            <Text style={styles.helperText}>Arama yaparak birden fazla il seçebilirsiniz.</Text>
 
-            <View style={styles.cityList}>
-              {filteredCitiesForSelect.slice(0, 50).map(city => {
-                const isSelected = selectedProvinces.includes(city.value);
-                return (
-                  <TouchableOpacity
-                    key={city.value}
-                    style={[styles.cityChip, isSelected && styles.cityChipSelected]}
-                    onPress={() => toggleProvince(city.value)}
-                  >
-                    <Text style={[styles.cityChipText, isSelected && styles.cityChipTextSelected]}>
-                      {city.label} {isSelected ? '✓' : ''}
-                    </Text>
+            {/* 📌 Seçili İller (En Üstte) */}
+            {selectedProvinces.length > 0 && (
+              <View style={styles.selectedProvincesContainer}>
+                <View style={styles.selectedProvincesHeader}>
+                  <Text style={styles.selectedProvincesTitle}>Seçili İller ({selectedProvinces.length})</Text>
+                  <TouchableOpacity onPress={() => setSelectedProvinces([])}>
+                    <Text style={styles.clearText}>Temizle</Text>
                   </TouchableOpacity>
-                );
-              })}
-            </View>
+                </View>
+                <View style={styles.cityList}>
+                  {selectedProvinces.map(code => {
+                    const city = CITIES.find(c => c.value === code);
+                    if (!city) return null;
+                    return (
+                      <TouchableOpacity
+                        key={code}
+                        style={[styles.cityChip, styles.cityChipSelected]}
+                        onPress={() => toggleProvince(code)}
+                      >
+                        <Text style={[styles.cityChipText, styles.cityChipTextSelected]}>
+                          {city.label} ✕
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+
+            {/* 🔽 Dropdown Toggle */}
+            <TouchableOpacity
+              style={styles.dropdownToggle}
+              onPress={() => setIsDropdownOpen(!isDropdownOpen)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.dropdownToggleText}>
+                {isDropdownOpen ? 'İl Seçimini Gizle' : 'İl Ekle / Seç'}
+              </Text>
+              <Image
+                source={require('../../../assets/icons/down-arrow.png')}
+                style={{ width: 14, height: 14, opacity: 0.6, transform: [{ rotate: isDropdownOpen ? '180deg' : '0deg' }] }}
+              />
+            </TouchableOpacity>
+
+            {/* 📋 Dropdown İçeriği */}
+            {isDropdownOpen && (
+              <View style={styles.dropdownContent}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="İlleri arayın..."
+                  value={citySearch}
+                  onChangeText={setCitySearch}
+                />
+                <Text style={styles.helperText}>Arama yaparak istediğiniz ili seçebilirsiniz.</Text>
+
+                <View style={styles.cityList}>
+                  {filteredCitiesForSelect.slice(0, 50).map(city => {
+                    const isSelected = selectedProvinces.includes(city.value);
+                    if (isSelected) return null; // Seçili olanları gizle, üstte görünüyorlar zaten
+                    return (
+                      <TouchableOpacity
+                        key={city.value}
+                        style={styles.cityChip}
+                        onPress={() => toggleProvince(city.value)}
+                      >
+                        <Text style={styles.cityChipText}>{city.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
 
             <TouchableOpacity style={styles.submitBtn} onPress={handleCreateGroup} disabled={creating}>
               {creating ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>✓ Grubu Oluştur</Text>}
@@ -345,6 +397,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 16,
     alignItems: 'center',
+    justifyContent: 'center',
+    width: 42,
+    height: 42,
   },
   createGroupText: {
     fontSize: 15,
@@ -500,6 +555,54 @@ const styles = StyleSheet.create({
   cityChipTextSelected: {
     fontWeight: '600',
     color: '#000',
+  },
+  selectedProvincesContainer: {
+    marginBottom: 16,
+    padding: 12,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#eee',
+  },
+  selectedProvincesHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  selectedProvincesTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#333',
+  },
+  clearText: {
+    fontSize: 13,
+    color: '#d32f2f',
+    fontWeight: '600',
+  },
+  dropdownToggle: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  dropdownToggleText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  dropdownContent: {
+    backgroundColor: '#fafafa',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#eee',
+    marginBottom: 16,
   },
   submitBtn: {
     backgroundColor: '#FFA500', // Turuncu

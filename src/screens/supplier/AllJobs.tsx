@@ -19,7 +19,7 @@ const ActionItem = ({ icon, label, onPress }: { icon: any; label: string; onPres
     <Text style={styles.actionLabel}>{label}</Text>
   </TouchableOpacity>
 );
-import { Modal, Linking } from 'react-native';
+import { Modal, Linking, ScrollView } from 'react-native';
 
 const JobDetailModal = ({
   visible,
@@ -111,7 +111,9 @@ const JobDetailModal = ({
             {!!job.description && (
               <>
                 <Text style={modalStyles.label}>AÇIKLAMA</Text>
-                <Text style={modalStyles.value}>{job.description}</Text>
+                <ScrollView style={modalStyles.descriptionScroll} showsVerticalScrollIndicator={true} persistentScrollbar={true}>
+                  <Text style={modalStyles.value}>{job.description}</Text>
+                </ScrollView>
               </>
             )}
 
@@ -286,7 +288,12 @@ const AllJobs = () => {
         <Image source={item.logo} style={styles.logo} />
 
         <View style={styles.titleArea}>
-          <Text style={styles.company}>{item.company}</Text>
+          <View style={{ flexDirection: 'column' }}>
+            <View style={{ backgroundColor: '#F7B500', borderRadius: 99, paddingHorizontal: 5, paddingVertical: 1, width: '55%', justifyContent: 'center', alignItems: 'center' }}>
+              <Text style={styles.jopType}>{item.jobType === 1 ? 'Kum & Mıcır' : 'Hafriyat Döküm'}</Text>
+            </View>
+            <Text style={styles.company}>{item.company}</Text>
+          </View>
           <Text style={styles.site}>{item.site}</Text>
         </View>
 
@@ -488,12 +495,17 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   company: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: DARK,
   },
-  site: {
+  jopType: {
     fontSize: 13,
+    fontWeight: '400',
+    color: DARK,
+  },
+  site: {
+    fontSize: 15,
     color: '#666',
     marginTop: 2,
   },
@@ -675,6 +687,16 @@ const modalStyles = StyleSheet.create({
     fontWeight: '600',
     color: DARK,
     marginBottom: 14,
+  },
+
+  descriptionScroll: {
+    maxHeight: 200, // Açıklama için sabit bir maksimum yükseklik
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#F7B500',
+    borderRadius: 14,
+    padding: 10,
+    backgroundColor: '#FFF7E0',
   },
 
   row: {
