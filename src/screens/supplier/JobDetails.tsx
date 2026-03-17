@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator,
   Image, Modal, TextInput, Alert, KeyboardAvoidingView, Platform,
-  TouchableWithoutFeedback, Keyboard, AppState, Share,
+  TouchableWithoutFeedback, Keyboard, AppState, Share, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
@@ -77,6 +77,7 @@ export default function JobDetails() {
   const [receiptVisible, setReceiptVisible] = useState(false);
   const [hauls, setHauls] = useState<HaulApi[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
   // ── Sefer Gir (teklif) modal
@@ -112,6 +113,20 @@ export default function JobDetails() {
       setLoading(false);
     }
   };
+
+  // ── Pull-to-refresh
+  const onRefresh = useCallback(async () => {
+    if (!token || !job?.id) return;
+    setRefreshing(true);
+    try {
+      const data = await getJobHauls(token, job.id);
+      setHauls(data);
+    } catch (error) {
+      console.log('Refresh error:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [token, job?.id]);
 
   // ── Bekleyen seferleri sunucuya gönder
   const syncPending = useCallback(async () => {
@@ -445,7 +460,17 @@ export default function JobDetails() {
     <SafeAreaView style={styles.container} edges={['bottom']}>
       {renderHeader()}
 
-      <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 20 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#1976D2']}
+            tintColor="#1976D2"
+          />
+        }
+      >
         <View style={styles.content}>
           {renderSummaryCards()}
 
@@ -460,7 +485,12 @@ export default function JobDetails() {
 
           {/* Liste başlığı + butonlar */}
           <View style={styles.listHeader}>
-            <Text style={styles.listTitle}>📃 Son Seferler</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Text style={styles.listTitle}>📃 Son Seferler</Text>
+              <TouchableOpacity style={styles.refreshIconBtn} onPress={onRefresh} disabled={refreshing}>
+                <Text style={styles.refreshIconText}>{refreshing ? '⏳' : '🔄'}</Text>
+              </TouchableOpacity>
+            </View>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <TouchableOpacity style={styles.manualBtn} onPress={() => setManualModal(true)}>
                 <Text style={styles.manualBtnText}>✏ Manuel Ekle</Text>
@@ -803,6 +833,8 @@ const styles = StyleSheet.create({
     borderRadius: 12, marginBottom: 12,
   },
   listTitle: { fontSize: 15, fontWeight: '800', color: DARK },
+  refreshIconBtn: { padding: 4 },
+  refreshIconText: { fontSize: 16 },
   addHaulBtn: { backgroundColor: '#1976D2', paddingVertical: 9, paddingHorizontal: 14, borderRadius: 10 },
   addHaulBtnText: { fontWeight: '800', fontSize: 13, color: '#fff' },
   manualBtn: { backgroundColor: '#F5F5F5', paddingVertical: 9, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: '#ccc' },
