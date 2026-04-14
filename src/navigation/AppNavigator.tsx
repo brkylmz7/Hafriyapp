@@ -7,6 +7,9 @@ import MyAds from '../screens/MyAds';
 import CustomHeader from '../components/CustomHeader';
 import CustomDrawerContent from './CustomDrawerContent';
 import CompanyChat from '../screens/supplier/CompanyChat';
+import CompanyDetailsScreen from '../screens/supplier/CompanyDetailsScreen';
+import ProfileEditScreen from '../screens/ProfileEditScreen';
+import CompanyEditScreen from '../screens/supplier/CompanyEditScreen';
 
 const Drawer = createDrawerNavigator();
 
@@ -28,6 +31,30 @@ export default function AppNavigator() {
       <Drawer.Screen
         name="CompanyChat"
         component={CompanyChat}
+        options={{
+          headerShown: false,
+          drawerItemStyle: { display: 'none' },
+        }}
+      />
+      <Drawer.Screen
+        name="CompanyDetails"
+        component={CompanyDetailsScreen}
+        options={{
+          headerShown: false,
+          drawerItemStyle: { display: 'none' },
+        }}
+      />
+      <Drawer.Screen
+        name="CompanyEdit"
+        component={CompanyEditScreen}
+        options={{
+          headerShown: false,
+          drawerItemStyle: { display: 'none' },
+        }}
+      />
+      <Drawer.Screen
+        name="ProfileEdit"
+        component={ProfileEditScreen}
         options={{
           headerShown: false,
           drawerItemStyle: { display: 'none' },
