@@ -1,22 +1,17 @@
-// services/jobSiteService.ts
-import axios from 'axios';
-
-const API_URL = 'https://api.hafriyapp.com/api';
+import { api } from './api';
 
 export const getJobSites = async (token: string) => {
-  const res = await axios.get(`${API_URL}/JobSite`, {
+  const res = await api.get('/JobSite', {
     headers: {
       Authorization: `Bearer ${token}`,
       accept: '*/*',
     },
   });
-
   return res.data;
 };
 
 export const createJobSite = async (token: string, data: any) => {
-  console.log('📦 CREATE JOB DATA SENT:', JSON.stringify(data, null, 2));
-  const res = await axios.post(`${API_URL}/JobSite`, data, {
+  const res = await api.post('/JobSite', data, {
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
@@ -27,8 +22,7 @@ export const createJobSite = async (token: string, data: any) => {
 };
 
 export const updateJobSite = async (token: string, id: string, data: any) => {
-  console.log('📦 UPDATE JOB DATA SENT:', JSON.stringify(data, null, 2));
-  const res = await axios.put(`${API_URL}/JobSite/${id}`, data, {
+  const res = await api.put(`/JobSite/${id}`, data, {
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
@@ -43,8 +37,8 @@ export const toggleJobSiteActive = async (
   id: string,
   isActive: boolean,
 ) => {
-  const res = await axios.put(
-    `${API_URL}/JobSite/${id}/toggle-active?isActive=${isActive}`,
+  const res = await api.put(
+    `/JobSite/${id}/toggle-active?isActive=${isActive}`,
     {},
     {
       headers: {
@@ -57,8 +51,7 @@ export const toggleJobSiteActive = async (
 };
 
 export const deleteJobSite = async (token: string, id: string) => {
-  console.log('🗑 DELETE JOB:', id);
-  const res = await axios.delete(`${API_URL}/JobSite/${id}`, {
+  const res = await api.delete(`/JobSite/${id}`, {
     headers: {
       Authorization: `Bearer ${token}`,
       accept: '*/*',
@@ -68,7 +61,7 @@ export const deleteJobSite = async (token: string, id: string) => {
 };
 
 export const getJobHauls = async (token: string, jobSiteId: string) => {
-  const res = await axios.get(`${API_URL}/Haul/jobsite/${jobSiteId}`, {
+  const res = await api.get(`/Haul/jobsite/${jobSiteId}`, {
     headers: {
       Authorization: `Bearer ${token}`,
       accept: '*/*',

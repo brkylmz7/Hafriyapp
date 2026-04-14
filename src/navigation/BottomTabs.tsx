@@ -128,6 +128,7 @@ export default function BottomTabs() {
               ),
             }}
           />
+
         </>
       ) : (
         <>
@@ -246,6 +247,7 @@ export default function BottomTabs() {
               ),
             }}
           />
+
         </>
       )}
     </Tab.Navigator>

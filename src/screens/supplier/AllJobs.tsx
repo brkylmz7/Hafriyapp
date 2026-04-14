@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, Image, TouchableOpacity, Platform, Alert, ActionSheetIOS, ScrollView, Modal, Linking } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TextInput, Image, TouchableOpacity, Platform, Alert, ActionSheetIOS, ScrollView, Modal, Linking, Share } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,6 +13,20 @@ const YELLOW = '#FFD500';
 const LIGHT_YELLOW = '#FFF2B3';
 const GRAY = '#F4F4F4';
 const DARK = '#222';
+
+const DEFAULT_LOGO = require('../../../assets/logokarakalem.png');
+
+const LogoImage = ({ source, style }: { source: any; style: any }) => {
+  const [errored, setErrored] = React.useState(false);
+  const src = errored ? DEFAULT_LOGO : source;
+  return (
+    <Image
+      source={src}
+      style={style}
+      onError={() => setErrored(true)}
+    />
+  );
+};
 
 const ActionItem = ({ icon, label, onPress }: { icon: any; label: string; onPress?: () => void; }) => (
   <TouchableOpacity style={styles.actionItem} onPress={onPress} activeOpacity={0.7}>
@@ -33,46 +47,34 @@ const JobDetailModal = ({
   if (!job) return null;
 
   const phones: string[] = job.phone
-    ? job.phone.split(',').map((p: string) => p.trim())
+    ? job.phone.split(/[,;]/).map((p: string) => p.trim()).filter(Boolean)
     : [];
 
-  const provinceLabel =
-    CITIES.find(c => c.value === job.provinceCode)?.label ?? '-';
-
-  const handleCallPress = (contactPhone?: string) => {
-    if (!contactPhone) return;
-    const list = contactPhone
-      .split(',')
-      .map(p => p.trim())
-      .filter(Boolean);
-
-    if (list.length === 1) {
-      Linking.openURL(`tel:${list[0]}`);
+  const handleCallPress = () => {
+    if (phones.length === 0) return;
+    if (phones.length === 1) {
+      Linking.openURL(`tel:${phones[0]}`);
       return;
     }
-
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
-        {
-          title: 'Numara Seç',
-          options: ['İptal', ...list],
-          cancelButtonIndex: 0,
-        },
-        i => {
-          if (i > 0) Linking.openURL(`tel:${list[i - 1]}`);
-        },
+        { title: 'Numara Seç', options: ['İptal', ...phones], cancelButtonIndex: 0 },
+        i => { if (i > 0) Linking.openURL(`tel:${phones[i - 1]}`); },
       );
     } else {
       Alert.alert(
-        'Numara Seç',
-        '',
-        list.map(p => ({
-          text: p,
-          onPress: () => Linking.openURL(`tel:${p}`),
-        })),
+        'Numara Seç', '',
+        phones.map(p => ({ text: p, onPress: () => Linking.openURL(`tel:${p}`) })),
+        { cancelable: true },
       );
     }
   };
+
+  const provinceLabel =
+    job.provinceName || CITIES.find(c => c.value === job.provinceCode)?.label || '-';
+  const locationLabel = job.districtName
+    ? `${provinceLabel} / ${job.districtName}`
+    : provinceLabel;
 
   return (
     <Modal visible={visible} transparent animationType="fade">
@@ -86,100 +88,130 @@ const JobDetailModal = ({
             </TouchableOpacity>
           </View>
 
-          {/* CONTENT */}
+          {/* CONTENT — web ile aynı sırada */}
           <ScrollView style={modalStyles.contentScroll} contentContainerStyle={modalStyles.content}>
-            <Text style={modalStyles.label}>İŞ ADI</Text>
-            <Text style={modalStyles.value}>{job.site}</Text>
 
-            <Text style={modalStyles.label}>FİRMA</Text>
-            <Text style={modalStyles.value}>{job.company}</Text>
+            {/* 1. Firma / Şantiye */}
+            <Text style={modalStyles.label}>FİRMA / ŞANTİYE</Text>
+            <Text style={modalStyles.value}>
+              {job.company ? `${job.company} / ` : ''}{job.site}
+            </Text>
 
+            {/* 2. Bölge + Saatler */}
             <View style={modalStyles.row}>
               <View style={{ flex: 1 }}>
                 <Text style={modalStyles.label}>BÖLGE</Text>
-                <Text style={modalStyles.value}>{provinceLabel}</Text>
+                <Text style={modalStyles.value}>{locationLabel}</Text>
               </View>
-
               <View style={{ flex: 1 }}>
                 <Text style={modalStyles.label}>SAATLER</Text>
                 <Text style={modalStyles.value}>
-                  {job.loadingStartTime || '??'} - {job.loadingEndTime || '??'}
+                  {job.loadingStartTime || '--'} - {job.loadingEndTime || '--'}
                 </Text>
               </View>
             </View>
 
-            {!!job.description && (
-              <>
-                <Text style={modalStyles.label}>AÇIKLAMA</Text>
-                <ScrollView style={modalStyles.descriptionScroll} showsVerticalScrollIndicator={true} persistentScrollbar={true}>
-                  <Text style={modalStyles.value}>{job.description}</Text>
-                </ScrollView>
-              </>
-            )}
-
-            {/* TEKLİFLER (Hafriyat) */}
-            {job.jobType !== 1 && job.dumps?.length > 0 && (
-              <>
-                <Text style={modalStyles.label}>TEKLİFLER</Text>
-                {job.dumps.map((d: any, i: number) => (
-                  <View key={i} style={modalStyles.offerRow}>
-                    <Text style={modalStyles.offerText}>{d.place}</Text>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={modalStyles.offerCash}>{d.cash}</Text>
-                      {d.fuel !== '-' && (
-                        <Text style={modalStyles.offerFuel}>{d.fuel}</Text>
-                      )}
-                    </View>
-                  </View>
-                ))}
-              </>
-            )}
-
-            {/* ROTALAR (Kum/Mıcır) */}
+            {/* 3. Rotalar (Kum/Mıcır) */}
             {job.jobType === 1 && job.routes?.length > 0 && (
               <>
                 <Text style={modalStyles.label}>ROTALAR</Text>
-                {job.routes.map((r: any, i: number) => (
-                  <View key={i} style={modalStyles.routeBox}>
-                    <View style={modalStyles.routeRow}>
-                      <Text style={modalStyles.routeLabel}>Yükleme</Text>
-                      <Text style={modalStyles.routeValue}>{r.loading}</Text>
+                <View style={modalStyles.offersBox}>
+                  {job.routes.map((r: any, i: number) => (
+                    <View key={i} style={[modalStyles.routeRow, i === job.routes.length - 1 && { borderBottomWidth: 0 }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={modalStyles.routePath}>
+                          {r.loading}  →  {r.unloading}
+                        </Text>
+                        {r.material !== '-' && (
+                          <Text style={modalStyles.routeMaterial}>{r.material}</Text>
+                        )}
+                      </View>
+                      <Text style={modalStyles.routePrice}>{r.cash}</Text>
                     </View>
-                    <View style={modalStyles.routeRow}>
-                      <Text style={modalStyles.routeLabel}>Boşaltma</Text>
-                      <Text style={modalStyles.routeValue}>{r.unloading}</Text>
-                    </View>
-                    <View style={[modalStyles.routeRow, { borderBottomWidth: 0 }]}>
-                      <Text style={modalStyles.routeLabel}>₺/Ton</Text>
-                      <Text style={[modalStyles.routeValue, { color: '#2E7D32', fontWeight: '700' }]}>{r.cash}</Text>
-                      {r.material !== '-' && (
-                        <>
-                          <Text style={[modalStyles.routeLabel, { marginLeft: 16 }]}>Malzeme</Text>
-                          <Text style={modalStyles.routeValue}>{r.material}</Text>
-                        </>
-                      )}
-                    </View>
-                  </View>
-                ))}
+                  ))}
+                </View>
               </>
             )}
+
+            {/* 3. Teklifler (Hafriyat) */}
+            {job.jobType !== 1 && job.dumps?.length > 0 && (
+              <>
+                <Text style={modalStyles.label}>TEKLİFLER</Text>
+                <View style={modalStyles.offersBox}>
+                  <View style={modalStyles.offersTableHeader}>
+                    <Text style={[modalStyles.offersThLeft]}>DÖKÜM BÖLGESİ</Text>
+                    <Text style={modalStyles.offersTh}>NAKİT</Text>
+                    <Text style={modalStyles.offersTh}>MAZOT</Text>
+                  </View>
+                  {job.dumps.map((d: any, i: number) => (
+                    <View key={i} style={modalStyles.offersTdRow}>
+                      <Text style={[modalStyles.offersTdLeft]}>{d.place}</Text>
+                      <Text style={[modalStyles.offersTd, { color: '#2E7D32' }]}>{d.cash}</Text>
+                      <Text style={[modalStyles.offersTd, { color: '#1565C0' }]}>{d.fuel}</Text>
+                    </View>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {/* 4. Tabela Açıklaması */}
+            {!!job.signDescription && (
+              <>
+                <Text style={modalStyles.label}>TABELA AÇIKLAMASI</Text>
+                <Text style={modalStyles.value}>{job.signDescription}</Text>
+              </>
+            )}
+
+            {/* 5. Açıklama */}
+            {!!job.description && (
+              <>
+                <Text style={modalStyles.label}>AÇIKLAMA</Text>
+                <View style={modalStyles.descBox}>
+                  <Text style={modalStyles.descText}>{job.description}</Text>
+                </View>
+              </>
+            )}
+
+            {/* 6. İletişim */}
+            {phones.length > 0 && (
+              <>
+                <Text style={[modalStyles.label, { marginTop: 8 }]}>İLETİŞİM</Text>
+                <View style={modalStyles.phoneList}>
+                  {phones.map((p, i) => (
+                    <TouchableOpacity
+                      key={i}
+                      style={modalStyles.phonePill}
+                      onPress={() => Linking.openURL(`tel:${p}`)}
+                    >
+                      <Text style={modalStyles.phonePillText}>📞 {p}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
+
           </ScrollView>
 
-          {/* FOOTER */}
+          {/* FOOTER: Kapat | Konum | Şimdi Ara */}
           <View style={modalStyles.footer}>
-            <TouchableOpacity
-              style={modalStyles.closeBtn}
-              onPress={onClose}
-            >
+            <TouchableOpacity style={modalStyles.closeBtn} onPress={onClose}>
               <Text style={modalStyles.closeBtnText}>Kapat</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={modalStyles.callBtn}
-              onPress={() => handleCallPress(job.phone)}
-            >
-              <Text style={modalStyles.callText}>📞 Şimdi Ara</Text>
-            </TouchableOpacity>
+            {!!job.locationUrl && (
+              <TouchableOpacity
+                style={modalStyles.locationBtn}
+                onPress={() => Linking.openURL(job.locationUrl)}
+              >
+                <Text style={modalStyles.locationBtnText}>📍 Konum</Text>
+              </TouchableOpacity>
+            )}
+
+            {phones.length > 0 && (
+              <TouchableOpacity style={modalStyles.callBtn} onPress={handleCallPress}>
+                <Text style={modalStyles.callText}>📞 Şimdi Ara</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </View>
@@ -194,7 +226,7 @@ const AllJobs = () => {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const bottomPadding = tabBarHeight + insets.bottom;
-  const [selectedCity, setSelectedCity] = useState<number>(340);
+  const [selectedCity, setSelectedCity] = useState<number | null>(null); // null = Tüm Türkiye
   const [cityOpen, setCityOpen] = useState(false);
   const [selectedDistricts, setSelectedDistricts] = useState<string[]>([]);
   const [jobs, setJobs] = useState<any[]>([]);
@@ -210,7 +242,7 @@ const AllJobs = () => {
 
   // Seçili ile ait ilçeler
   const availableDistricts = useMemo(
-    () => DISTRICTS[selectedCity] ?? [],
+    () => (selectedCity != null ? DISTRICTS[selectedCity] ?? [] : []),
     [selectedCity],
   );
 
@@ -240,35 +272,34 @@ const AllJobs = () => {
   }, [selectedCity]);
 
   const openCityPicker = () => {
-    const options = ['İptal', ...CITIES.map(c => c.label)];
+    const allOption = 'Tüm Türkiye';
+    const options = ['İptal', allOption, ...CITIES.map(c => c.label)];
 
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options,
-          cancelButtonIndex: 0,
-        },
+        { options, cancelButtonIndex: 0 },
         buttonIndex => {
           if (buttonIndex === 0) return;
-
-          const city = CITIES[buttonIndex - 1];
-          setSelectedCity(city.value);
+          if (buttonIndex === 1) { setSelectedCity(null); return; }
+          setSelectedCity(CITIES[buttonIndex - 2].value);
         },
       );
     } else {
       Alert.alert(
         'İl Seç',
         undefined,
-        CITIES.map(city => ({
-          text: city.label,
-          onPress: () => setSelectedCity(city.value),
-        })),
+        [
+          { text: allOption, onPress: () => setSelectedCity(null) },
+          ...CITIES.map(city => ({
+            text: city.label,
+            onPress: () => setSelectedCity(city.value),
+          })),
+        ],
         { cancelable: true },
       );
     }
   };
   const handleCallPress1 = (phone?: string) => {
-    console.log('123123123123')
     if (!phone) return;
     const phones = phone
       .split(',')
@@ -276,14 +307,12 @@ const AllJobs = () => {
       .filter(Boolean);
 
     if (phones.length === 0) return;
-    console.log('phone', phones)
-    // ✅ TEK NUMARA → DİREKT ARA
+
     if (phones.length === 1) {
       Linking.openURL(`tel:${phones[0]}`);
       return;
     }
 
-    // ✅ BİRDEN FAZLA NUMARA
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         {
@@ -301,13 +330,18 @@ const AllJobs = () => {
       Alert.alert(
         'Numara Seç',
         '',
-        phones.map(phone => ({
-          text: phone,
-          onPress: () => Linking.openURL(`tel:${phone}`),
+        phones.map(p => ({
+          text: p,
+          onPress: () => Linking.openURL(`tel:${p}`),
         })),
         { cancelable: true },
       );
     }
+  };
+
+  const handleSharePress = (item: any) => {
+    const text = `${item.company ? item.company + ' - ' : ''}${item.site}`;
+    Share.share({ message: text });
   };
 
   const handleLocationPress = (url?: string) => {
@@ -326,9 +360,8 @@ const AllJobs = () => {
 
     setLoading(true);
     try {
-      const response = await getMarketJobs(token, selectedCity);
+      const response = await getMarketJobs(token, selectedCity ?? undefined);
       const mapped = response.map(mapJobFromApi);
-      console.log('response', response)
       setJobs(mapped);
     } catch (e) {
       console.log('Market jobs error', e);
@@ -340,16 +373,22 @@ const AllJobs = () => {
     <View style={styles.card}>
       {/* HEADER */}
       <View style={styles.cardHeader}>
-        <Image source={item.logo} style={styles.logo} />
+        <LogoImage source={item.logo} style={styles.logo} />
 
         <View style={styles.titleArea}>
           <View style={{ flexDirection: 'column' }}>
-            <View style={{ backgroundColor: '#F7B500', borderRadius: 99, paddingHorizontal: 5, paddingVertical: 1, width: '55%', justifyContent: 'center', alignItems: 'center' }}>
+            {/* <View style={{ backgroundColor: '#F7B500', borderRadius: 99, paddingHorizontal: 5, paddingVertical: 1, width: '55%', justifyContent: 'center', alignItems: 'center' }}>
               <Text style={styles.jopType}>{item.jobType === 1 ? 'Kum & Mıcır' : 'Hafriyat Döküm'}</Text>
-            </View>
+            </View> */}
             <Text style={styles.company}>{item.company}</Text>
           </View>
           <Text style={styles.site}>{item.site}</Text>
+          {/* Bölge: il / ilçe */}
+          {(item.provinceName || item.districtName) ? (
+            <Text style={styles.locationText}>
+              📍 {item.provinceName}{item.districtName ? ` / ${item.districtName}` : ''}
+            </Text>
+          ) : null}
         </View>
 
         <TouchableOpacity style={styles.moreBtn} onPress={() => {
@@ -373,8 +412,11 @@ const AllJobs = () => {
           label="Arama"
           onPress={() => handleCallPress1(item.phone)}
         />
-        <ActionItem icon={require('../../../assets/icons/send.png')} label="Paylaş" />
-        {/* <ActionItem icon={require('../../../assets/icons/dots.png')} label="Ayrıntılar" /> */}
+        <ActionItem
+          icon={require('../../../assets/icons/send.png')}
+          label="Paylaş"
+          onPress={() => handleSharePress(item)}
+        />
       </View>
 
       {/* TABLE */}
@@ -408,6 +450,13 @@ const AllJobs = () => {
             </View>
           ))}
         </>
+      )}
+
+      {/* TABELA AÇIKLAMASI (aktifse göster) */}
+      {item.isActive && !!item.signDescription && (
+        <View style={styles.signDescBox}>
+          <Text style={styles.signDescText} numberOfLines={4}>{item.signDescription}</Text>
+        </View>
       )}
 
       {/* STATUS */}
@@ -467,9 +516,9 @@ const AllJobs = () => {
                   activeOpacity={0.8}
                 >
                   <Text style={styles.cityText}>
-                    {selectedCity
-                      ? CITIES.find(c => c.value === selectedCity)?.label
-                      : 'İl'}
+                    {selectedCity != null
+                      ? CITIES.find(c => c.value === selectedCity)?.label ?? 'İl'
+                      : 'Tüm Türkiye'}
                   </Text>
                   <Image
                     source={require('../../../assets/icons/down-arrow.png')}
@@ -617,6 +666,25 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#666',
     marginTop: 2,
+  },
+  locationText: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  signDescBox: {
+    backgroundColor: '#FFF8E1',
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#FFE082',
+  },
+  signDescText: {
+    fontSize: 13,
+    color: '#555',
+    lineHeight: 18,
   },
   moreBtn: {
     paddingHorizontal: 8,
@@ -854,25 +922,127 @@ const modalStyles = StyleSheet.create({
     marginBottom: 14,
   },
 
-  descriptionScroll: {
-    maxHeight: 200, // Açıklama için sabit bir maksimum yükseklik
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: '#F7B500',
-    borderRadius: 14,
-    padding: 10,
-    backgroundColor: '#FFF7E0',
-  },
-
   row: {
     flexDirection: 'row',
     gap: 12,
+    marginBottom: 14,
+  },
+
+  /* Teklifler / Rotalar kutusu */
+  offersBox: {
+    backgroundColor: '#FCFCFC',
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 14,
+  },
+  offersTableHeader: {
+    flexDirection: 'row',
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+    marginBottom: 4,
+  },
+  offersThLeft: {
+    flex: 2,
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#bbb',
+    textTransform: 'uppercase',
+  },
+  offersTh: {
+    flex: 1,
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#bbb',
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
+  offersTdRow: {
+    flexDirection: 'row',
+    paddingVertical: 5,
+    borderTopWidth: 1,
+    borderTopColor: '#F9F9F9',
+  },
+  offersTdLeft: {
+    flex: 2,
+    fontSize: 13,
+    fontWeight: '700',
+    color: DARK,
+  },
+  offersTd: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+    color: '#444',
+  },
+
+  /* Kum/Mıcır rota satırı */
+  routeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F5F5F5',
+  },
+  routePath: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: DARK,
+  },
+  routeMaterial: {
+    fontSize: 12,
+    color: '#999',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  routePrice: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#2ecc71',
+  },
+
+  /* Açıklama kutusu */
+  descBox: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 14,
+  },
+  descText: {
+    fontSize: 14,
+    color: '#555',
+    lineHeight: 20,
+  },
+
+  /* İletişim pill'ları */
+  phoneList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 14,
+  },
+  phonePill: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: '#F0F0F0',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#DDD',
+  },
+  phonePillText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: DARK,
   },
 
   footer: {
     flexDirection: 'row',
     padding: 14,
-    gap: 12,
+    gap: 8,
   },
 
   closeBtn: {
@@ -882,11 +1052,23 @@ const modalStyles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: 'center',
   },
-
   closeBtnText: {
     fontSize: 14,
     fontWeight: '600',
     color: DARK,
+  },
+
+  locationBtn: {
+    flex: 1,
+    backgroundColor: '#E3F2FD',
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  locationBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1565C0',
   },
 
   callBtn: {
@@ -896,81 +1078,10 @@ const modalStyles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: 'center',
   },
-
   callText: {
     fontSize: 14,
     fontWeight: '700',
     color: '#fff',
-  },
-  offerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 8,
-  },
-
-  offerText: {
-    fontSize: 13,
-    color: DARK,
-    flex: 1,
-  },
-
-  offerCash: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#2E7D32',
-  },
-
-  offerFuel: {
-    fontSize: 12,
-    color: '#1565C0',
-    marginTop: 2,
-  },
-
-  routeBox: {
-    backgroundColor: '#F9F9F9',
-    borderRadius: 12,
-    padding: 10,
-    marginBottom: 8,
-  },
-
-  routeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EFEFEF',
-  },
-
-  routeLabel: {
-    fontSize: 11,
-    color: '#999',
-    width: 60,
-  },
-
-  routeValue: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: DARK,
-    flex: 1,
-  },
-  phoneRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#F7F7F7',
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginBottom: 10,
-  },
-  phoneText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: DARK,
-  },
-  phoneIcon: {
-    fontSize: 18,
   },
 });
 

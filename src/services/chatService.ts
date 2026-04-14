@@ -1,14 +1,13 @@
 import axios from 'axios';
 import { api } from './api';
 
-export const getChatGroups = async (token: string, provinceCode: number, page: number = 1, pageSize: number = 20) => {
+export const getChatGroups = async (token: string, provinceCode?: number, page: number = 1, pageSize: number = 20) => {
     try {
+        const params: Record<string, any> = { page, pageSize };
+        if (provinceCode != null) params.provinceCode = provinceCode;
+
         const response = await api.get(`/ChatGroup`, {
-            params: {
-                provinceCode,
-                page,
-                pageSize,
-            },
+            params,
             headers: {
                 Authorization: `Bearer ${token}`,
             },

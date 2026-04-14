@@ -10,7 +10,7 @@ export default function SupplierHome() {
   const [searchText, setSearchText] = useState('');
   const [chatGroups, setChatGroups] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedCity, setSelectedCity] = useState<number>(340);
+  const [selectedCity, setSelectedCity] = useState<number | null>(null); // null = Tüm Türkiye
   const token = useAppSelector(state => state.auth.token);
   const user = useAppSelector(state => state.auth.user);
 
@@ -34,7 +34,7 @@ export default function SupplierHome() {
     if (!token) return;
     if (showLoader) setLoading(true);
     try {
-      const res = await getChatGroups(token, selectedCity);
+      const res = await getChatGroups(token, selectedCity ?? undefined);
       if (res && res.data && res.data.groups) {
         setChatGroups(res.data.groups);
       }
@@ -86,29 +86,29 @@ export default function SupplierHome() {
   };
 
   const openCityPicker = () => {
-    const options = ['İptal', ...CITIES.map(c => c.label)];
+    const allOption = 'Tüm Türkiye';
+    const options = ['İptal', allOption, ...CITIES.map(c => c.label)];
 
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options,
-          cancelButtonIndex: 0,
-        },
+        { options, cancelButtonIndex: 0 },
         buttonIndex => {
           if (buttonIndex === 0) return;
-
-          const city = CITIES[buttonIndex - 1];
-          setSelectedCity(city.value);
+          if (buttonIndex === 1) { setSelectedCity(null); return; }
+          setSelectedCity(CITIES[buttonIndex - 2].value);
         },
       );
     } else {
       Alert.alert(
         'İl Seç',
         undefined,
-        CITIES.map(city => ({
-          text: city.label,
-          onPress: () => setSelectedCity(city.value),
-        })),
+        [
+          { text: allOption, onPress: () => setSelectedCity(null) },
+          ...CITIES.map(city => ({
+            text: city.label,
+            onPress: () => setSelectedCity(city.value),
+          })),
+        ],
         { cancelable: true },
       );
     }
@@ -153,35 +153,43 @@ export default function SupplierHome() {
     return CITIES.filter(c => c.label.toLowerCase().includes(citySearch.toLowerCase()));
   }, [citySearch]);
 
-  const renderItem = ({ item }: { item: any }) => (
-    <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('CompanyChat', { group: item })} activeOpacity={0.7}>
-      {/* Grupların logosu olmadığı için varsayılan bir logo kullanıyoruz */}
-      <View style={styles.iconContainer}>
-        <Image source={require('../../../assets/icons/city.png')} style={styles.icon} />
-      </View>
+  const renderItem = ({ item }: { item: any }) => {
+    // Keşfet gruplarında açıklama göster (son mesaj yoksa), üye gruplarında son mesajı göster
+    const previewText = item.isMember
+      ? (item.lastMessageSenderName ? `${item.lastMessageSenderName}: ` : '') + (item.lastMessagePreview || 'Henüz mesaj yok')
+      : (item.description || item.lastMessagePreview || 'Henüz mesaj yok');
 
-      <View style={styles.content}>
-        <Text style={styles.name}>{item.name}</Text>
-        <Text style={styles.message} numberOfLines={1}>
-          {item.lastMessageSenderName ? `${item.lastMessageSenderName}: ` : ''}{item.lastMessagePreview || 'Henüz mesaj yok'}
-        </Text>
-      </View>
+    return (
+      <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('CompanyChat', { group: item })} activeOpacity={0.7}>
+        <View style={styles.iconContainer}>
+          {item.imageUrl ? (
+            <Image source={{ uri: item.imageUrl }} style={{ width: 50, height: 50, borderRadius: 25 }} />
+          ) : (
+            <Image source={require('../../../assets/icons/city.png')} style={styles.icon} />
+          )}
+        </View>
 
-      <View style={styles.rightContent}>
-        <Text style={styles.time}>
-          {item.lastMessageAt ? new Date(item.lastMessageAt).toLocaleDateString("tr-TR", { day: '2-digit', month: '2-digit' }) : ''}
-        </Text>
+        <View style={styles.content}>
+          <Text style={styles.name}>{item.name}</Text>
+          <Text style={styles.message} numberOfLines={1}>{previewText}</Text>
+        </View>
 
-        {item.isMember ? (
-          <View style={styles.memberBadge}>
-            <Text style={styles.memberBadgeText}>Üye</Text>
-          </View>
-        ) : (
-          <Text style={styles.memberCountText}>{item.memberCount || 0} üye</Text>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
+        <View style={styles.rightContent}>
+          <Text style={styles.time}>
+            {item.lastMessageAt ? new Date(item.lastMessageAt).toLocaleDateString("tr-TR", { day: '2-digit', month: '2-digit' }) : ''}
+          </Text>
+
+          {item.isMember ? (
+            <View style={styles.memberBadge}>
+              <Text style={styles.memberBadgeText}>Üye</Text>
+            </View>
+          ) : (
+            <Text style={styles.memberCountText}>{item.memberCount || 0} üye</Text>
+          )}
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -201,7 +209,9 @@ export default function SupplierHome() {
         {/* 🌍 İL SEÇİMİ */}
         <TouchableOpacity style={styles.cityBtn} onPress={openCityPicker}>
           <Text style={styles.cityText}>
-            {CITIES.find(c => c.value === selectedCity)?.label || 'İl Seç'}
+            {selectedCity != null
+              ? CITIES.find(c => c.value === selectedCity)?.label ?? 'İl Seç'
+              : 'Tüm Türkiye'}
           </Text>
           <Image
             source={require('../../../assets/icons/down-arrow.png')}

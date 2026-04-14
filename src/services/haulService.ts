@@ -1,6 +1,4 @@
-import axios from 'axios';
-
-const API_URL = 'https://api.hafriyapp.com/api';
+import { api } from './api';
 
 export type HaulApi = {
   id: string;
@@ -28,48 +26,18 @@ export type HaulApi = {
 
 // Tüm seferleri getir (kullanıcıya ait araçların seferleri)
 export const getHauls = async (token: string): Promise<HaulApi[]> => {
-  try {
-    console.log('🚀 [Haul] getHauls başlıyor');
-    const res = await axios.get(`${API_URL}/Haul/my`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/json',
-      },
-    });
-    console.log('✅ [Haul] Status:', res.status, '| Adet:', res.data?.length);
-    return res.data;
-  } catch (error: any) {
-    console.log('❌ [Haul] getHauls HATA');
-    if (error.response) {
-      console.log('🔴 Status:', error.response.status);
-      console.log('🔴 Data:', error.response.data);
-    } else {
-      console.log('🟡 Message:', error.message);
-    }
-    throw error;
-  }
+  const res = await api.get('/Haul/my', {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+  });
+  return res.data;
 };
 
 // Araca özel seferleri getir
 export const getHaulsByVehicle = async (vehicleId: string, token: string): Promise<HaulApi[]> => {
-  try {
-    console.log('🚀 [Haul] getHaulsByVehicle:', vehicleId);
-    const res = await axios.get(`${API_URL}/Haul/vehicle/${vehicleId}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/json',
-      },
-    });
-    console.log('✅ [Haul] Vehicle hauls:', res.data?.length);
-    return res.data;
-  } catch (error: any) {
-    console.log('❌ [Haul] getHaulsByVehicle HATA');
-    if (error.response) {
-      console.log('🔴 Status:', error.response.status);
-      console.log('🔴 Data:', error.response.data);
-    }
-    throw error;
-  }
+  const res = await api.get(`/Haul/vehicle/${vehicleId}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+  });
+  return res.data;
 };
 
 export type CreateHaulParams = {
@@ -87,43 +55,30 @@ export type CreateHaulParams = {
 
 // Yeni sefer oluştur
 export const createHaul = async (params: CreateHaulParams, token: string): Promise<HaulApi> => {
-  try {
-    console.log('🚀 [Haul] createHaul başlıyor:', params.plateNumber);
-    const res = await axios.post(
-      `${API_URL}/Haul`,
-      {
-        jobSiteId: params.jobSiteId,
-        plateNumber: params.plateNumber.replace(/\s/g, '').toUpperCase(),
-        paymentType: params.paymentType,
-        tonage: params.tonage ?? 0,
-        cashAmount: params.cashAmount ?? 0,
-        fuelAmount: params.fuelAmount ?? 0,
-        dumpLocation: params.dumpLocation ?? '',
-        note: params.note ?? '',
-        timeOfHaul: params.timeOfHaul ?? new Date().toISOString(),
-        isPaid: false,
-        isPrintedReceipt: params.isPrintedReceipt ?? false,
+  const res = await api.post(
+    '/Haul',
+    {
+      jobSiteId: params.jobSiteId,
+      plateNumber: params.plateNumber.replace(/\s/g, '').toUpperCase(),
+      paymentType: params.paymentType,
+      tonage: params.tonage ?? 0,
+      cashAmount: params.cashAmount ?? 0,
+      fuelAmount: params.fuelAmount ?? 0,
+      dumpLocation: params.dumpLocation ?? '',
+      note: params.note ?? '',
+      timeOfHaul: params.timeOfHaul ?? new Date().toISOString(),
+      isPaid: false,
+      isPrintedReceipt: params.isPrintedReceipt ?? false,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
       },
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-      }
-    );
-    console.log('✅ [Haul] createHaul success:', res.status);
-    return res.data;
-  } catch (error: any) {
-    console.log('❌ [Haul] createHaul HATA');
-    if (error.response) {
-      console.log('🔴 Status:', error.response.status);
-      console.log('🔴 Data:', error.response.data);
-    } else {
-      console.log('🟡 Network error:', error.message);
-    }
-    throw error;
-  }
+    },
+  );
+  return res.data;
 };
 
 export type UpdateHaulPaymentParams = {
@@ -139,35 +94,24 @@ export type UpdateHaulPaymentParams = {
 // Sefer ödeme durumunu güncelle
 export const updateHaulPayment = async (
   params: UpdateHaulPaymentParams,
-  token: string
+  token: string,
 ): Promise<void> => {
-  try {
-    console.log('💰 [Haul] updateHaulPayment:', params.haulId, 'isPaid:', params.isPaid);
-    await axios.patch(
-      `${API_URL}/Haul/${params.haulId}/payment`,
-      {
-        isPaid: params.isPaid,
-        paymentType: params.paymentType,
-        cashAmount: params.cashAmount,
-        fuelAmount: params.fuelAmount,
-        tonage: params.tonage,
-        dumpLocation: params.dumpLocation,
+  await api.patch(
+    `/Haul/${params.haulId}/payment`,
+    {
+      isPaid: params.isPaid,
+      paymentType: params.paymentType,
+      cashAmount: params.cashAmount,
+      fuelAmount: params.fuelAmount,
+      tonage: params.tonage,
+      dumpLocation: params.dumpLocation,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
       },
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-      }
-    );
-    console.log('✅ [Haul] Payment updated');
-  } catch (error: any) {
-    console.log('❌ [Haul] updateHaulPayment HATA');
-    if (error.response) {
-      console.log('🔴 Status:', error.response.status);
-      console.log('🔴 Data:', error.response.data);
-    }
-    throw error;
-  }
+    },
+  );
 };

@@ -12,16 +12,18 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import axios from 'axios';
 
 import NewJobModal from '../../components/NewJobModal';
-import { deleteJobSite, toggleJobSiteActive } from '../../services/jobSiteNewService';
+import {
+  deleteJobSite,
+  toggleJobSiteActive,
+  getJobSites,
+  getJobHauls,
+} from '../../services/jobSiteNewService';
 import { useAppSelector } from '../../hooks';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-
 const YELLOW = '#FFD500';
-const API_URL = 'https://api.hafriyapp.com/api';
 
 type Job = {
   id: string;
@@ -31,6 +33,7 @@ type Job = {
   locationUrl: string;
   contactPhone: string;
   description: string;
+  signDescription: string;
   jobType: number;
   offer1Name: string;
   offer1Cash: number;
@@ -44,7 +47,6 @@ type Job = {
   isActive: boolean;
   fuelLiters: number;
   sandFuelLiters: number;
-  // Diğer alanlar API'den geliyorsa...
 };
 
 type JobUI = {
@@ -56,13 +58,15 @@ type JobUI = {
   unpaid: number;
   fuelLeft: string;
   fuelGiven: string;
+  cashGiven: string;
+  totalTonage: number;
   canEdit: boolean;
   isActive: boolean;
-  raw: Job; // 🛠 Veriyi sakla
+  raw: Job;
 };
 
 export default function MyJobs() {
-  const navigation = useNavigation<any>(); // Add navigation hook
+  const navigation = useNavigation<any>();
   const token = useAppSelector(state => state.auth.token);
   const [jobs, setJobs] = useState<JobUI[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,28 +81,52 @@ export default function MyJobs() {
     try {
       setLoading(true);
 
-      const res = await axios.get(`${API_URL}/JobSite`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          accept: '*/*',
-        },
-      });
+      const data = await getJobSites(token);
 
-      console.log('🚀 JobSite Data:', JSON.stringify(res.data, null, 2));
+      const mapped: JobUI[] = await Promise.all(
+        data.map(async (item: any) => {
+          let today = 0, total = 0, paid = 0, unpaid = 0;
+          let fuelGiven = '0 lt', cashGiven = '0₺', totalTonage = 0;
 
-      const mapped: JobUI[] = res.data.map((item: any) => ({
-        id: item.id,
-        site: item.name,
-        today: 0,        // başka servisten gelecek
-        total: 0,
-        paid: 0,
-        unpaid: 0,
-        fuelLeft: `${item.fuelStock ?? 0} lt`,
-        fuelGiven: '0 lt',
-        canEdit: item.canEdit,
-        isActive: item.isActive,
-        raw: item, // 🛠 Full data
-      }));
+          try {
+            const hauls = await getJobHauls(token, item.id);
+            const todayStr = new Date().toDateString();
+
+            total = hauls.length;
+            paid = hauls.filter((h: any) => h.isPaid).length;
+            unpaid = hauls.filter((h: any) => !h.isPaid).length;
+            today = hauls.filter((h: any) =>
+              new Date(h.timeOfHaul).toDateString() === todayStr
+            ).length;
+
+            const totalFuel = hauls.reduce((s: number, h: any) => s + (h.fuelAmount ?? 0), 0);
+            const totalCash = hauls.reduce((s: number, h: any) => s + (h.cashAmount ?? 0), 0);
+            const totalTon = hauls.reduce((s: number, h: any) => s + (h.tonage ?? 0), 0) / 1000;
+
+            fuelGiven = `${totalFuel.toFixed(0)} lt`;
+            cashGiven = `${totalCash.toFixed(0)}₺`;
+            totalTonage = parseFloat(totalTon.toFixed(1));
+          } catch {
+            // haul fetch failed — leave defaults (0)
+          }
+
+          return {
+            id: item.id,
+            site: item.name,
+            today,
+            total,
+            paid,
+            unpaid,
+            fuelLeft: `${item.fuelStock ?? 0} lt`,
+            fuelGiven,
+            cashGiven,
+            totalTonage,
+            canEdit: item.canEdit,
+            isActive: item.isActive,
+            raw: item,
+          };
+        }),
+      );
 
       setJobs(mapped);
     } catch (err) {
@@ -118,7 +146,7 @@ export default function MyJobs() {
   };
 
   const handleNewJob = () => {
-    setSelectedJob(undefined); // Yeni iş
+    setSelectedJob(undefined);
     setShowModal(true);
   };
 
@@ -126,7 +154,7 @@ export default function MyJobs() {
     setShowModal(false);
     setSelectedJob(undefined);
     if (refresh) {
-      fetchJobs(); // 🛠 Listeyi yenile
+      fetchJobs();
     }
   };
 
@@ -145,7 +173,7 @@ export default function MyJobs() {
           try {
             await toggleJobSiteActive(token, job.id, nextActive);
             fetchJobs();
-          } catch (error) {
+          } catch {
             Alert.alert('Hata', 'İşlem sırasında bir sorun oluştu.');
           }
         },
@@ -155,32 +183,27 @@ export default function MyJobs() {
 
   const handleFinishJob = (jobId: string) => {
     Alert.alert(
-      "İşi Bitir",
-      "İşi bitirmek istediğinize emin misiniz?",
+      'İşi Bitir',
+      'İşi bitirmek istediğinize emin misiniz?',
       [
+        { text: 'Vazgeç', style: 'cancel' },
         {
-          text: "Vazgeç",
-          style: "cancel"
-        },
-        {
-          text: "Evet",
+          text: 'Evet',
           onPress: async () => {
             if (token) {
               try {
                 await deleteJobSite(token, jobId);
-                fetchJobs(); // Listeyi yenile
-                Alert.alert("Başarılı", "İş başarıyla sonlandırıldı.");
-              } catch (error) {
-                console.error("Delete job error:", error);
-                Alert.alert("Hata", "İş sonlandırılırken bir sorun oluştu.");
+                fetchJobs();
+                Alert.alert('Başarılı', 'İş başarıyla sonlandırıldı.');
+              } catch {
+                Alert.alert('Hata', 'İş sonlandırılırken bir sorun oluştu.');
               }
             }
-          }
-        }
-      ]
+          },
+        },
+      ],
     );
   };
-
 
   const filteredJobs = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -189,8 +212,7 @@ export default function MyJobs() {
         filterType === 'ALL' ||
         (filterType === 'KUM' && item.raw.jobType === 1) ||
         (filterType === 'HAFRIYAT' && item.raw.jobType !== 1);
-      const matchesSearch =
-        !q || item.site.toLowerCase().includes(q);
+      const matchesSearch = !q || item.site.toLowerCase().includes(q);
       return matchesType && matchesSearch;
     });
   }, [jobs, search, filterType]);
@@ -199,65 +221,65 @@ export default function MyJobs() {
     const isKum = item.raw.jobType === 1;
 
     return (
-    <View style={styles.card}>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.site}>{item.site}</Text>
-        <Text style={styles.jobType}>
-          {isKum ? 'Kum & Mıcır' : 'Hafriyat Döküm'}
-        </Text>
+      <View style={styles.card}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.site}>{item.site}</Text>
+          <Text style={styles.jobType}>
+            {isKum ? 'Kum & Mıcır' : 'Hafriyat Döküm'}
+          </Text>
 
-        <View style={{ marginTop: '2%' }}>
-          <Text style={styles.info}>Bugün atılan seferler: {item.today}</Text>
-          <Text style={styles.info}>Toplam atılan seferler: {item.total}</Text>
-          <Text style={styles.info}>Ödemesi yapılan: {item.paid}</Text>
-          <Text style={styles.info}>Ödemesi yapılmayan: {item.unpaid}</Text>
+          <View style={{ marginTop: '2%' }}>
+            <Text style={styles.info}>Bugün atılan seferler: <Text style={styles.infoBold}>{item.today}</Text></Text>
+            <Text style={styles.info}>Toplam atılan seferler: <Text style={styles.infoBold}>{item.total}</Text></Text>
+            <Text style={styles.info}>Ödemesi yapılan: <Text style={[styles.infoBold, { color: '#2E7D32' }]}>{item.paid}</Text></Text>
+            <Text style={styles.info}>Ödemesi yapılmayan: <Text style={[styles.infoBold, { color: '#E53935' }]}>{item.unpaid}</Text></Text>
+          </View>
+        </View>
+
+        <View style={styles.right}>
+          {/* Hafriyat: yakıt + nakit kutusu */}
+          {!isKum && (
+            <View style={styles.infoBox}>
+              <Text style={styles.infoBoxTitle}>Kaynak Durumu</Text>
+              <Text style={styles.infoBoxRow}>Nakit: {item.cashGiven}</Text>
+              <Text style={styles.infoBoxRow}>Yakıt: {item.fuelGiven}</Text>
+              <Text style={[styles.infoBoxRow, { color: '#1565C0' }]}>Kalan: {item.fuelLeft}</Text>
+            </View>
+          )}
+
+          {/* Kum/Mıcır: tonaj + nakit kutusu */}
+          {isKum && (
+            <View style={styles.infoBox}>
+              <Text style={styles.infoBoxTitle}>Malzeme</Text>
+              <Text style={styles.infoBoxValue}>{item.totalTonage} Ton</Text>
+              <View style={styles.infoBoxCashRow}>
+                <Text style={styles.infoBoxCash}>{item.cashGiven}</Text>
+              </View>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={[styles.actionBtn, item.isActive ? styles.actionBtnDanger : styles.actionBtnSuccess]}
+            onPress={() => handleToggleActive(item)}
+          >
+            <Text style={item.isActive ? styles.actionBtnDangerText : styles.actionBtnSuccessText}>
+              {item.isActive ? 'Yayından Kaldır' : 'Yayına Al'}
+            </Text>
+          </TouchableOpacity>
+          {item.canEdit && (
+            <TouchableOpacity style={styles.actionBtn} onPress={() => handleEdit(item.raw)}>
+              <Text style={styles.actionBtnText}>Düzenle</Text>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => navigation.navigate('JobDetails', { job: item.raw })}
+          >
+            <Text style={styles.actionBtnText}>İşi Aç</Text>
+          </TouchableOpacity>
         </View>
       </View>
-
-      <View style={styles.right}>
-        {/* Hafriyat: yakıt kutusu */}
-        {!isKum && (
-          <View style={styles.infoBox}>
-            <Text style={styles.infoBoxTitle}>Yakıt Durumu</Text>
-            <Text style={styles.infoBoxRow}>Kalan: {item.fuelLeft}</Text>
-            <Text style={styles.infoBoxRow}>Verilen: {item.fuelGiven}</Text>
-          </View>
-        )}
-
-        {/* Kum/Mıcır: malzeme miktarı kutusu */}
-        {isKum && (
-          <View style={styles.infoBox}>
-            <Text style={styles.infoBoxTitle}>Malzeme Miktarı</Text>
-            <Text style={styles.infoBoxLabel}>Verilen:</Text>
-            <Text style={styles.infoBoxValue}>{item.total} Ton</Text>
-            <View style={styles.infoBoxCashRow}>
-              <Text style={styles.infoBoxCash}>Nakit Verilen: {item.paid}₺</Text>
-            </View>
-          </View>
-        )}
-
-        <TouchableOpacity
-          style={[styles.actionBtn, item.isActive ? styles.actionBtnDanger : styles.actionBtnSuccess]}
-          onPress={() => handleToggleActive(item)}
-        >
-          <Text style={item.isActive ? styles.actionBtnDangerText : styles.actionBtnSuccessText}>
-            {item.isActive ? 'Yayından Kaldır' : 'Yayına Al'}
-          </Text>
-        </TouchableOpacity>
-        {item.canEdit && (
-          <TouchableOpacity style={styles.actionBtn} onPress={() => handleEdit(item.raw)}>
-            <Text style={styles.actionBtnText}>Düzenle</Text>
-          </TouchableOpacity>
-        )}
-
-        <TouchableOpacity
-          style={styles.actionBtn}
-          onPress={() => navigation.navigate('JobDetails', { job: item.raw })}
-        >
-          <Text style={styles.actionBtnText}>İşi Aç</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
     );
   };
 
@@ -273,7 +295,7 @@ export default function MyJobs() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={[
         styles.content,
-        { marginTop: -insets.top + 15 }, // 👈 BOŞLUĞU YOK EDEN SATIR
+        { marginTop: -insets.top + 15 },
       ]}>
         <Text style={styles.title}>FİRMANIZA AİT İŞLER</Text>
 
@@ -379,6 +401,11 @@ const styles = StyleSheet.create({
     marginVertical: '1%',
   },
 
+  infoBold: {
+    fontWeight: '700',
+    color: '#111',
+  },
+
   right: {
     alignItems: 'flex-end',
     justifyContent: 'space-between',
@@ -437,6 +464,7 @@ const styles = StyleSheet.create({
     color: '#2E6B1F',
     fontWeight: '600',
     textAlign: 'center',
+    marginVertical: 1,
   },
 
   actionBtn: {

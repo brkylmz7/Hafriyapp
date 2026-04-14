@@ -17,6 +17,7 @@ import {
   Alert,
   Image,
   RefreshControl,
+  Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppSelector } from '../../hooks';
@@ -92,6 +93,10 @@ export default function SupplierVehicles() {
   const [paymentFuel, setPaymentFuel] = useState('');
   const [paymentSaving, setPaymentSaving] = useState(false);
   const [haulFilter, setHaulFilter] = useState('');
+  const [filterYear, setFilterYear] = useState<number | null>(null);
+  const [filterMonth, setFilterMonth] = useState<number | null>(null);
+  const [yearPickerVisible, setYearPickerVisible] = useState(false);
+  const [monthPickerVisible, setMonthPickerVisible] = useState(false);
 
   const token = useAppSelector(state => state.auth.token);
   const user = useAppSelector(state => state.auth.user);
@@ -398,6 +403,26 @@ export default function SupplierVehicles() {
     setConfirmPaymentModal(true);
   };
 
+  const triggerPrint = async (haul: HaulApi) => {
+    const lines = [
+      '🚛 HAFRİYAT FİŞİ',
+      '━━━━━━━━━━━━━━━━━━━━',
+      `Şantiye : ${haul.jobSiteName || '-'}`,
+      `Tarih   : ${new Date(haul.timeOfHaul).toLocaleString('tr-TR')}`,
+      '━━━━━━━━━━━━━━━━━━━━',
+      `Plaka   : ${haul.plateNumber}`,
+      haul.driverName || haul.driverPhone ? `Şoför   : ${haul.driverName || haul.driverPhone}` : '',
+      `Döküm   : ${haul.dumpLocation || '-'}`,
+      haul.tonage > 0 ? `Tonaj   : ${haul.tonage.toLocaleString('tr-TR')} kg` : '',
+      haul.cashAmount > 0 ? `Nakit   : ${haul.cashAmount.toLocaleString('tr-TR')} TL` : '',
+      haul.fuelAmount > 0 ? `Yakıt   : ${haul.fuelAmount.toLocaleString('tr-TR')} Lt` : '',
+      '━━━━━━━━━━━━━━━━━━━━',
+    ].filter(Boolean).join('\n');
+    try {
+      await Share.share({ message: lines });
+    } catch { }
+  };
+
   const formatHaulDate = (iso: string) => {
     if (!iso) return '-';
     const d = new Date(iso);
@@ -578,6 +603,30 @@ export default function SupplierVehicles() {
     return `${yy}${mm}${dd}${hh}${mi}${ss}`;
   };
 
+  const TR_MONTHS = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+
+  // Mevcut haul listesinden benzersiz yılları çıkar
+  const availableYears = Array.from(
+    new Set(hauls.map(h => new Date(h.timeOfHaul).getFullYear()))
+  ).sort((a, b) => b - a);
+
+  // Aktif filtreye göre gösterilecek sefer listesi
+  const filteredHauls = hauls.filter(h => {
+    const d = new Date(h.timeOfHaul);
+    if (filterYear !== null && d.getFullYear() !== filterYear) return false;
+    if (filterMonth !== null && d.getMonth() + 1 !== filterMonth) return false;
+    if (haulFilter) {
+      const q = haulFilter.toLowerCase();
+      if (
+        !h.plateNumber.toLowerCase().includes(q) &&
+        !(h.jobSiteName || '').toLowerCase().includes(q) &&
+        !(h.dumpLocation || '').toLowerCase().includes(q) &&
+        !(h.serialNumber || '').toLowerCase().includes(q)
+      ) return false;
+    }
+    return true;
+  });
+
   const isToday = (iso: string) => {
     const d = new Date(iso);
     const now = new Date();
@@ -745,44 +794,104 @@ export default function SupplierVehicles() {
       {/* ================= TRIPS ================= */}
       {activeTab === 'trips' && (
         <>
-          {/* Özet Kartları */}
-          <View style={styles.haulSummaryRow}>
-            <View style={styles.haulSummaryCard}>
-              <Text style={styles.haulSummaryNum}>{hauls.length}</Text>
-              <Text style={styles.haulSummaryLabel}>Toplam</Text>
-            </View>
-            <View style={[styles.haulSummaryCard, { backgroundColor: '#EAF7EA' }]}>
-              <Text style={[styles.haulSummaryNum, { color: '#2E7D32' }]}>
-                {hauls.filter(h => h.isPaid).length}
-              </Text>
-              <Text style={styles.haulSummaryLabel}>Ödendi</Text>
-            </View>
-            <View style={[styles.haulSummaryCard, { backgroundColor: '#FFF4E5' }]}>
-              <Text style={[styles.haulSummaryNum, { color: '#E65100' }]}>
-                {hauls.filter(h => !h.isPaid).length}
-              </Text>
-              <Text style={styles.haulSummaryLabel}>Bekliyor</Text>
-            </View>
-          </View>
+          {/* Özet Çubuğu */}
+          {(() => {
+            const todayStr = new Date().toDateString();
+            const todayCount = hauls.filter(h => new Date(h.timeOfHaul).toDateString() === todayStr).length;
+            return (
+              <View style={styles.summaryBar}>
+                <View style={styles.summaryItem}>
+                  <Text style={[styles.summaryValue, { color: '#E65100' }]}>{todayCount}</Text>
+                  <Text style={styles.summaryLabel}>Bugün</Text>
+                </View>
+                <View style={styles.summaryDivider} />
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryValue}>{hauls.length}</Text>
+                  <Text style={styles.summaryLabel}>Toplam</Text>
+                </View>
+                <View style={styles.summaryDivider} />
+                <View style={styles.summaryItem}>
+                  <Text style={[styles.summaryValue, { color: '#2E7D32' }]}>{hauls.filter(h => h.isPaid).length}</Text>
+                  <Text style={styles.summaryLabel}>Ödendi</Text>
+                </View>
+                <View style={styles.summaryDivider} />
+                <View style={styles.summaryItem}>
+                  <Text style={[styles.summaryValue, { color: '#E53935' }]}>{hauls.filter(h => !h.isPaid).length}</Text>
+                  <Text style={styles.summaryLabel}>Bekliyor</Text>
+                </View>
+              </View>
+            );
+          })()}
 
-          {/* Arama kutusu */}
+          {/* Filtre satırı */}
           {!haulsLoading && !haulsError && hauls.length > 0 && (
-            <View style={styles.searchBox}>
-              <Text style={styles.searchIcon}>🔍</Text>
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Plaka veya şantiye ara..."
-                placeholderTextColor="#aaa"
-                value={haulFilter}
-                onChangeText={setHaulFilter}
-                autoCapitalize="characters"
-              />
-              {haulFilter.length > 0 && (
-                <TouchableOpacity onPress={() => setHaulFilter('')}>
-                  <Text style={styles.searchClear}>✕</Text>
+            <>
+              {/* Metin arama */}
+              <View style={styles.searchBox}>
+                <Text style={styles.searchIcon}>🔍</Text>
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Plaka veya şantiye ara..."
+                  placeholderTextColor="#aaa"
+                  value={haulFilter}
+                  onChangeText={setHaulFilter}
+                  autoCapitalize="characters"
+                />
+                {haulFilter.length > 0 && (
+                  <TouchableOpacity onPress={() => setHaulFilter('')}>
+                    <Text style={styles.searchClear}>✕</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* Yıl / Ay filtresi */}
+              <View style={styles.dateFilterRow}>
+                <TouchableOpacity
+                  style={[styles.dateFilterBtn, filterYear !== null && styles.dateFilterBtnActive]}
+                  onPress={() => setYearPickerVisible(true)}
+                >
+                  <Text style={[styles.dateFilterBtnText, filterYear !== null && styles.dateFilterBtnTextActive]}>
+                    📅 {filterYear !== null ? String(filterYear) : 'Yıl'}
+                  </Text>
+                  {filterYear !== null && (
+                    <TouchableOpacity onPress={() => { setFilterYear(null); setFilterMonth(null); }} style={styles.dateFilterClear}>
+                      <Text style={styles.dateFilterClearText}>✕</Text>
+                    </TouchableOpacity>
+                  )}
                 </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.dateFilterBtn, filterMonth !== null && styles.dateFilterBtnActive, filterYear === null && { opacity: 0.4 }]}
+                  onPress={() => { if (filterYear !== null) setMonthPickerVisible(true); }}
+                  disabled={filterYear === null}
+                >
+                  <Text style={[styles.dateFilterBtnText, filterMonth !== null && styles.dateFilterBtnTextActive]}>
+                    🗓 {filterMonth !== null ? TR_MONTHS[filterMonth - 1] : 'Ay'}
+                  </Text>
+                  {filterMonth !== null && (
+                    <TouchableOpacity onPress={() => setFilterMonth(null)} style={styles.dateFilterClear}>
+                      <Text style={styles.dateFilterClearText}>✕</Text>
+                    </TouchableOpacity>
+                  )}
+                </TouchableOpacity>
+
+                {(filterYear !== null || filterMonth !== null || haulFilter) && (
+                  <TouchableOpacity
+                    style={styles.dateFilterResetBtn}
+                    onPress={() => { setFilterYear(null); setFilterMonth(null); setHaulFilter(''); }}
+                  >
+                    <Text style={styles.dateFilterResetText}>Temizle</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* Filtrelenmiş sonuç sayısı */}
+              {(filterYear !== null || filterMonth !== null || haulFilter) && (
+                <Text style={styles.filterResultText}>
+                  {filteredHauls.length} sefer bulundu
+                </Text>
               )}
-            </View>
+            </>
           )}
 
           {haulsLoading ? (
@@ -803,16 +912,7 @@ export default function SupplierVehicles() {
             </View>
           ) : (
             <FlatList
-              data={hauls.filter(h => {
-                if (!haulFilter) return true;
-                const q = haulFilter.toLowerCase();
-                return (
-                  h.plateNumber.toLowerCase().includes(q) ||
-                  (h.jobSiteName || '').toLowerCase().includes(q) ||
-                  (h.dumpLocation || '').toLowerCase().includes(q) ||
-                  (h.serialNumber || '').toLowerCase().includes(q)
-                );
-              })}
+              data={filteredHauls}
               keyExtractor={i => i.id}
               renderItem={renderTrip}
               contentContainerStyle={{ paddingBottom: 20, gap: 10 }}
@@ -827,7 +927,7 @@ export default function SupplierVehicles() {
               }
               ListEmptyComponent={
                 <View style={styles.centerBox}>
-                  <Text style={styles.emptyText}>Arama sonucu bulunamadı.</Text>
+                  <Text style={styles.emptyText}>Filtre sonucu bulunamadı.</Text>
                 </View>
               }
             />
@@ -1008,162 +1108,150 @@ export default function SupplierVehicles() {
 
 
       {/* ================= RECEIPT MODAL ================= */}
-      <Modal visible={receiptVisible} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.receiptModalWrap}>
-            {/* Modal Başlık */}
-            <View style={styles.receiptModalHeader}>
-              <Text style={styles.receiptModalTitle}>🧾 Sefer Fişi</Text>
-              <Pressable onPress={() => setReceiptVisible(false)}>
-                <Text style={styles.closeX}>✕</Text>
-              </Pressable>
-            </View>
+      {selectedTrip && (
+        <Modal visible={receiptVisible} transparent animationType="fade" onRequestClose={() => setReceiptVisible(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.receiptCard}>
 
-            {selectedTrip && (
-              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
-                {/* FİŞ KARTI — web .haul-receipt stili */}
-                <View style={styles.receiptCard}>
-                  {/* WATERMARK */}
-                  <View style={styles.receiptWatermark} pointerEvents="none">
-                    <Text style={styles.receiptWatermarkText}>HAFRİYAT</Text>
+              {/* Sol şerit — "HAFRİYAPP" dikey */}
+              <View style={styles.receiptStrip}>
+                <Text style={styles.receiptStripText}>HAFRİYAPP</Text>
+              </View>
+
+              {/* Ana içerik */}
+              <View style={styles.receiptMain}>
+
+                {/* Başlık: firma + şantiye | saat + QR */}
+                <View style={styles.receiptHead}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.receiptCompany}>
+                      {(selectedTrip.companyName || 'HAFRİYAT').toUpperCase()}
+                    </Text>
+                    <Text style={styles.receiptJobsite} numberOfLines={1}>
+                      {selectedTrip.jobSiteName || ''}
+                    </Text>
                   </View>
-
-                  {/* ÜST BÖLÜM: Saat | Firma+Şantiye | QR */}
-                  <View style={styles.receiptTop}>
-                    {/* Sol: Saat + Tarih */}
-                    <View style={styles.receiptTopLeft}>
-                      <Text style={styles.receiptBigTime}>
-                        {new Date(selectedTrip.timeOfHaul).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
-                      </Text>
-                      <Text style={styles.receiptSmallDate}>
-                        {new Date(selectedTrip.timeOfHaul).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: '2-digit' })}
-                      </Text>
-                    </View>
-
-                    {/* Orta: Firma + Şantiye */}
-                    <View style={styles.receiptTopCenter}>
-                      <Text style={styles.receiptCompanyName} numberOfLines={2}>
-                        {(selectedTrip.companyName || 'HAFRİYAT').toUpperCase()}
-                      </Text>
-                      <Text style={styles.receiptJobsiteName} numberOfLines={1}>
-                        {selectedTrip.jobSiteName || '-'}
-                      </Text>
-                    </View>
-
-                    {/* Sağ: QR */}
-                    <View style={styles.receiptTopRight}>
-                      {selectedTrip.qrCodeBase64 ? (
-                        <Image
-                          source={{ uri: `data:image/png;base64,${selectedTrip.qrCodeBase64}` }}
-                          style={styles.receiptQR}
-                          resizeMode="contain"
-                        />
-                      ) : (
-                        <View style={[styles.receiptQR, { alignItems: 'center', justifyContent: 'center' }]}>
-                          <Text style={{ fontSize: 28 }}>📋</Text>
-                        </View>
-                      )}
-                    </View>
-                  </View>
-
-                  {/* DETAY SATIRLARI */}
-                  <View style={styles.receiptDetails}>
-                    <View style={styles.receiptDetailRow}>
-                      <Text style={styles.receiptDetailLabel}>Plaka</Text>
-                      <Text style={[styles.receiptDetailValue, { fontWeight: '800', letterSpacing: 1 }]}>
-                        {selectedTrip.plateNumber}
-                      </Text>
-                    </View>
-
-                    <View style={styles.receiptDetailRow}>
-                      <Text style={styles.receiptDetailLabel}>Şoför</Text>
-                      <Text style={styles.receiptDetailValue}>
-                        {selectedTrip.driverPhone || selectedTrip.driverName || '-'}
-                      </Text>
-                    </View>
-
-                    <View style={styles.receiptDetailRow}>
-                      <Text style={styles.receiptDetailLabel}>Döküm</Text>
-                      <Text style={styles.receiptDetailValue} numberOfLines={2}>
-                        {selectedTrip.dumpLocation || '-'}
-                      </Text>
-                    </View>
-
-                    {selectedTrip.tonage > 0 && (
-                      <View style={styles.receiptDetailRow}>
-                        <Text style={styles.receiptDetailLabel}>Tonaj</Text>
-                        <Text style={styles.receiptDetailValue}>
-                          {selectedTrip.tonage.toLocaleString('tr-TR')} kg
-                        </Text>
-                      </View>
-                    )}
-
-                    <View style={[styles.receiptDetailRow, styles.receiptDetailRowStrong]}>
-                      <Text style={styles.receiptDetailLabel}>Ücret</Text>
-                      <Text style={[styles.receiptDetailValue, styles.receiptDetailValueStrong]}>
-                        {(() => {
-                          const parts: string[] = [];
-                          if (selectedTrip.cashAmount > 0)
-                            parts.push(`${selectedTrip.cashAmount.toLocaleString('tr-TR')} TL`);
-                          if (selectedTrip.fuelAmount > 0)
-                            parts.push(`${selectedTrip.fuelAmount.toLocaleString('tr-TR')} Lt`);
-                          return parts.length > 0 ? parts.join(' / ') : '-';
-                        })()}
-                      </Text>
-                    </View>
-
-                    {selectedTrip.contactPhone ? (
-                      <View style={[styles.receiptDetailRow, { borderBottomWidth: 0 }]}>
-                        <Text style={styles.receiptDetailLabel}>Yetkili</Text>
-                        <Text style={styles.receiptDetailValue}>{selectedTrip.contactPhone}</Text>
-                      </View>
-                    ) : (
-                      <View style={[styles.receiptDetailRow, { borderBottomWidth: 0 }]}>
-                        <Text style={styles.receiptDetailLabel}>Seri No</Text>
-                        <Text style={[styles.receiptDetailValue, { fontFamily: 'monospace' }]}>
-                          {autoSerial(selectedTrip)}
-                          {selectedTrip.serialNumber ? `  #${selectedTrip.serialNumber}` : ''}
-                        </Text>
-                      </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={styles.receiptBigTime}>
+                      {new Date(selectedTrip.timeOfHaul).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                    {selectedTrip.qrCodeBase64 && (
+                      <Image
+                        source={{ uri: `data:image/png;base64,${selectedTrip.qrCodeBase64}` }}
+                        style={styles.receiptQRImg}
+                        resizeMode="contain"
+                      />
                     )}
                   </View>
                 </View>
 
-                {/* DURUM */}
-                <View style={[
-                  styles.receiptStatusBox,
-                  { backgroundColor: selectedTrip.isPaid ? '#E8F5E9' : '#FFFDE7' },
-                ]}>
-                  <Text style={{
-                    fontWeight: '800',
-                    color: selectedTrip.isPaid ? '#2E7D32' : '#E65100',
-                    fontSize: 14,
-                  }}>
-                    {selectedTrip.isPaid ? '✔ Ödendi' : '⏳ Ödeme Bekliyor'}
+                {/* Tarih satırı */}
+                <View style={styles.receiptDateRow}>
+                  <Text style={styles.receiptDateText}>
+                    {new Date(selectedTrip.timeOfHaul).toLocaleDateString('tr-TR')}
                   </Text>
                 </View>
 
-                {!selectedTrip.isPaid && (
-                  <TouchableOpacity
-                    style={styles.confirmBigBtn}
-                    onPress={() => {
-                      setReceiptVisible(false);
-                      openPaymentConfirm(selectedTrip);
-                    }}
-                  >
-                    <Text style={styles.confirmBigText}>💰 Ödemeyi Onayla</Text>
-                  </TouchableOpacity>
-                )}
-              </ScrollView>
-            )}
+                {/* Satırlar */}
+                <View style={styles.receiptBody}>
+                  {/* Seri No */}
+                  <View style={styles.receiptRow}>
+                    <Text style={styles.receiptRowLabel}>Seri No</Text>
+                    <Text style={styles.receiptRowValue}>
+                      {autoSerial(selectedTrip)}{selectedTrip.serialNumber ? `  #${selectedTrip.serialNumber}` : ''}
+                    </Text>
+                  </View>
 
-            {/* Footer */}
-            <TouchableOpacity style={styles.receiptCloseBtn} onPress={() => setReceiptVisible(false)}>
-              <Text style={styles.receiptCloseBtnText}>Kapat</Text>
-            </TouchableOpacity>
+                  {/* Plaka + Şoför inline */}
+                  <View style={styles.receiptRow}>
+                    <Text style={styles.receiptRowLabel}>Plaka</Text>
+                    <Text style={[styles.receiptRowValue, { fontWeight: '800' }]}>
+                      {selectedTrip.plateNumber}
+                      {(selectedTrip.driverName || selectedTrip.driverPhone)
+                        ? `   Şoför  ${selectedTrip.driverName || selectedTrip.driverPhone}`
+                        : ''}
+                    </Text>
+                  </View>
+
+                  {/* Döküm */}
+                  <View style={styles.receiptRow}>
+                    <Text style={styles.receiptRowLabel}>Döküm</Text>
+                    <Text style={[styles.receiptRowValue, { fontWeight: '800' }]}>
+                      {selectedTrip.dumpLocation || '-'}
+                    </Text>
+                  </View>
+
+                  {/* Tonaj opsiyonel */}
+                  {selectedTrip.tonage > 0 && (
+                    <View style={styles.receiptRow}>
+                      <Text style={styles.receiptRowLabel}>Tonaj</Text>
+                      <Text style={styles.receiptRowValue}>
+                        {selectedTrip.tonage.toLocaleString('tr-TR')} kg
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Ücret */}
+                  <View style={[styles.receiptRow, styles.receiptRowUcret]}>
+                    <Text style={[styles.receiptRowLabel, { fontWeight: '700' }]}>Ücret</Text>
+                    <Text style={[styles.receiptRowValue, { fontSize: 15, fontWeight: '800' }]}>
+                      {[
+                        selectedTrip.cashAmount > 0 ? `${selectedTrip.cashAmount.toLocaleString('tr-TR')}₺` : '',
+                        selectedTrip.fuelAmount > 0 ? `${selectedTrip.fuelAmount.toLocaleString('tr-TR')}lt` : '',
+                      ].filter(Boolean).join('/') || '-'}
+                    </Text>
+                  </View>
+
+                  {/* Durum */}
+                  <View style={[styles.receiptRow, { borderBottomWidth: 0 }]}>
+                    <Text style={styles.receiptRowLabel}>Durum</Text>
+                    <Text style={[styles.receiptRowValue, {
+                      color: selectedTrip.isPaid ? '#2E7D32' : '#E65100',
+                      fontWeight: '800',
+                    }]}>
+                      {selectedTrip.isPaid ? '✔ Ödendi' : '⏳ Bekliyor'}
+                    </Text>
+                  </View>
+
+                  {/* Yetkili opsiyonel */}
+                  {!!selectedTrip.contactPhone && (
+                    <View style={[styles.receiptRow, { borderBottomWidth: 0, marginTop: 0 }]}>
+                      <Text style={styles.receiptRowLabel}>Yetkili</Text>
+                      <Text style={styles.receiptRowValue}>{selectedTrip.contactPhone}</Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Footer butonlar */}
+                <View style={styles.receiptFooterRow}>
+                  <TouchableOpacity
+                    style={styles.receiptCloseBtnNew}
+                    onPress={() => setReceiptVisible(false)}
+                  >
+                    <Text style={styles.receiptCloseBtnNewText}>Kapat</Text>
+                  </TouchableOpacity>
+                  {!selectedTrip.isPaid ? (
+                    <TouchableOpacity
+                      style={styles.receiptApproveBtnNew}
+                      onPress={() => { setReceiptVisible(false); openPaymentConfirm(selectedTrip); }}
+                    >
+                      <Text style={styles.receiptApproveBtnNewText}>💰 Onayla</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.receiptPrintBtnNew}
+                      onPress={() => triggerPrint(selectedTrip)}
+                    >
+                      <Text style={styles.receiptPrintBtnNewText}>🖨 Yazdır</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+              </View>
+            </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
+      )}
 
       {/* ================= ÖDEME ONAY MODAL ================= */}
       <Modal visible={confirmPaymentModal} transparent animationType="fade">
@@ -1330,6 +1418,74 @@ export default function SupplierVehicles() {
                 </View>
               </ScrollView>
             </KeyboardAvoidingView>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* ================= YIL SEÇİCİ ================= */}
+      <Modal visible={yearPickerVisible} transparent animationType="slide">
+        <TouchableWithoutFeedback onPress={() => setYearPickerVisible(false)}>
+          <View style={styles.pickerOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.pickerContainer}>
+                <View style={styles.pickerHeader}>
+                  <Text style={styles.pickerHeaderText}>Yıl Seçin</Text>
+                  <TouchableOpacity onPress={() => setYearPickerVisible(false)}>
+                    <Text style={styles.pickerHeaderClose}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+                <FlatList
+                  data={availableYears}
+                  keyExtractor={y => String(y)}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={[styles.pickerItem, filterYear === item && styles.pickerItemActive]}
+                      onPress={() => { setFilterYear(item); setFilterMonth(null); setYearPickerVisible(false); }}
+                    >
+                      <Text style={[styles.pickerItemText, filterYear === item && styles.pickerItemTextActive]}>
+                        {item}
+                      </Text>
+                      {filterYear === item && <Text style={{ color: '#1976D2', fontWeight: '800' }}>✔</Text>}
+                    </TouchableOpacity>
+                  )}
+                  ItemSeparatorComponent={() => <View style={styles.pickerSeparator} />}
+                />
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* ================= AY SEÇİCİ ================= */}
+      <Modal visible={monthPickerVisible} transparent animationType="slide">
+        <TouchableWithoutFeedback onPress={() => setMonthPickerVisible(false)}>
+          <View style={styles.pickerOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.pickerContainer}>
+                <View style={styles.pickerHeader}>
+                  <Text style={styles.pickerHeaderText}>Ay Seçin — {filterYear}</Text>
+                  <TouchableOpacity onPress={() => setMonthPickerVisible(false)}>
+                    <Text style={styles.pickerHeaderClose}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+                <FlatList
+                  data={TR_MONTHS.map((name, i) => ({ name, month: i + 1 }))}
+                  keyExtractor={m => String(m.month)}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={[styles.pickerItem, filterMonth === item.month && styles.pickerItemActive]}
+                      onPress={() => { setFilterMonth(item.month); setMonthPickerVisible(false); }}
+                    >
+                      <Text style={[styles.pickerItemText, filterMonth === item.month && styles.pickerItemTextActive]}>
+                        {item.name}
+                      </Text>
+                      {filterMonth === item.month && <Text style={{ color: '#1976D2', fontWeight: '800' }}>✔</Text>}
+                    </TouchableOpacity>
+                  )}
+                  ItemSeparatorComponent={() => <View style={styles.pickerSeparator} />}
+                />
+              </View>
+            </TouchableWithoutFeedback>
           </View>
         </TouchableWithoutFeedback>
       </Modal>
@@ -1990,7 +2146,27 @@ const styles = StyleSheet.create({
     color: '#222',
   },
 
-  // Haul / Trips stiller
+  // Özet çubuğu
+  summaryBar: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    marginBottom: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.07,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  summaryItem: { flex: 1, alignItems: 'center' },
+  summaryValue: { fontSize: 20, fontWeight: '800', color: DARK },
+  summaryLabel: { fontSize: 11, color: '#888', marginTop: 2 },
+  summaryDivider: { width: 1, height: 36, backgroundColor: '#EEEEEE' },
+
+  // Haul / Trips stiller (legacy — kept for compatibility)
   haulSummaryRow: {
     flexDirection: 'row',
     gap: 10,
@@ -2070,192 +2246,165 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // Receipt Modal wrap
-  receiptModalWrap: {
-    width: '92%',
-    maxHeight: '88%',
+  // ── Fiş Detay Modal (yeni tasarım — HAFRİYAPP şeridi)
+  receiptCard: {
+    width: '90%',
+    flexDirection: 'row',
     backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 16,
+    borderRadius: 14,
+    overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.22,
     shadowRadius: 10,
     elevation: 10,
   },
 
-  receiptModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  // Sol dikey şerit
+  receiptStrip: {
+    width: 32,
+    backgroundColor: '#2c2c2c',
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 14,
+  },
+  receiptStripText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 2.5,
+    transform: [{ rotate: '-90deg' }],
+    width: 120,
+    textAlign: 'center',
   },
 
-  receiptModalTitle: {
+  // Ana içerik alanı
+  receiptMain: { flex: 1 },
+
+  // Başlık satırı
+  receiptHead: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 10,
+  },
+  receiptCompany: {
     fontSize: 17,
     fontWeight: '800',
     color: DARK,
+    letterSpacing: 0.5,
   },
-
-  // Fiş kartı — .haul-receipt
-  receiptCard: {
-    borderWidth: 2,
-    borderColor: DARK,
-    borderRadius: 18,
-    padding: 14,
-    position: 'relative',
-    overflow: 'hidden',
-    backgroundColor: '#fff',
-    marginBottom: 12,
+  receiptJobsite: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+    fontWeight: '500',
   },
-
-  receiptWatermark: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 0,
-  },
-
-  receiptWatermarkText: {
-    fontSize: 52,
-    fontWeight: '800',
-    color: DARK,
-    opacity: 0.06,
-    letterSpacing: 2,
-    transform: [{ rotate: '-28deg' }],
-  },
-
-  // Üst bölüm — .haul-receipt__top
-  receiptTop: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    zIndex: 1,
-    marginBottom: 10,
-  },
-
-  receiptTopLeft: {
-    minWidth: 62,
-  },
-
   receiptBigTime: {
     fontSize: 22,
     fontWeight: '800',
     color: DARK,
-    lineHeight: 26,
+  },
+  receiptQRImg: {
+    width: 70,
+    height: 70,
+    borderRadius: 6,
+    marginTop: 6,
+    backgroundColor: '#f0f0f0',
   },
 
-  receiptSmallDate: {
-    fontSize: 11,
-    color: '#888',
-    marginTop: 2,
+  // Tarih satırı
+  receiptDateRow: {
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    borderBottomWidth: 1.5,
+    borderBottomColor: '#ddd',
   },
-
-  receiptTopCenter: {
-    flex: 1,
-    minWidth: 0,
-  },
-
-  receiptCompanyName: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: DARK,
-    textTransform: 'uppercase',
-  },
-
-  receiptJobsiteName: {
+  receiptDateText: {
     fontSize: 13,
-    fontWeight: '700',
-    color: DARK,
-    marginTop: 2,
+    fontWeight: '600',
+    color: '#444',
   },
 
-  receiptTopRight: {
-    alignItems: 'flex-end',
+  // Satırlar
+  receiptBody: {
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 4,
   },
-
-  receiptQR: {
-    width: 80,
-    height: 80,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    backgroundColor: '#fff',
-    padding: 3,
-  },
-
-  // Detay satırları — .haul-receipt__details
-  receiptDetails: {
-    zIndex: 1,
-  },
-
-  receiptDetailRow: {
+  receiptRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 10,
-    paddingVertical: 7,
+    alignItems: 'center',
+    paddingVertical: 9,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.12)',
+    borderBottomColor: 'rgba(0,0,0,0.07)',
     borderStyle: 'dashed',
   },
-
-  receiptDetailRowStrong: {
+  receiptRowUcret: {
     borderBottomColor: 'rgba(0,0,0,0.18)',
+    borderBottomWidth: 1.5,
   },
-
-  receiptDetailLabel: {
-    fontSize: 12,
+  receiptRowLabel: {
+    fontSize: 13,
     color: '#888',
-    minWidth: 52,
+    fontWeight: '500',
+    minWidth: 58,
   },
-
-  receiptDetailValue: {
-    fontSize: 12,
+  receiptRowValue: {
+    fontSize: 13,
     color: DARK,
     fontWeight: '600',
     flex: 1,
     textAlign: 'right',
+    paddingLeft: 8,
   },
 
-  receiptDetailValueStrong: {
-    fontSize: 14,
-    fontWeight: '800',
-  },
-
-  receiptStatusBox: {
-    borderRadius: 12,
-    padding: 12,
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-
-  confirmBigBtn: {
-    backgroundColor: '#2E7D32',
-    borderRadius: 14,
-    paddingVertical: 13,
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-
-  confirmBigText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '800',
-  },
-
-  receiptCloseBtn: {
-    borderWidth: 1.5,
-    borderColor: '#ccc',
-    borderRadius: 12,
-    paddingVertical: 11,
-    alignItems: 'center',
+  // Footer butonlar
+  receiptFooterRow: {
+    flexDirection: 'row',
+    gap: 10,
+    padding: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
     marginTop: 4,
   },
-
-  receiptCloseBtnText: {
+  receiptCloseBtnNew: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: '#ccc',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  receiptCloseBtnNewText: {
     color: '#555',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  receiptPrintBtnNew: {
+    flex: 1,
+    backgroundColor: '#2c2c2c',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  receiptPrintBtnNewText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  receiptApproveBtnNew: {
+    flex: 1,
+    backgroundColor: '#2E7D32',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  receiptApproveBtnNewText: {
+    color: '#fff',
     fontWeight: '700',
     fontSize: 14,
   },
@@ -2324,5 +2473,123 @@ const styles = StyleSheet.create({
   payTypeTextActive: {
     color: DARK,
     fontWeight: '800',
+  },
+
+  // ── Yıl/Ay filtre satırı
+  dateFilterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+    flexWrap: 'wrap',
+  },
+  dateFilterBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    borderWidth: 1.5,
+    borderColor: '#E0E0E0',
+    gap: 6,
+  },
+  dateFilterBtnActive: {
+    borderColor: '#1976D2',
+    backgroundColor: '#E3F2FD',
+  },
+  dateFilterBtnText: {
+    fontSize: 13,
+    color: '#888',
+    fontWeight: '600',
+  },
+  dateFilterBtnTextActive: {
+    color: '#1976D2',
+    fontWeight: '800',
+  },
+  dateFilterClear: {
+    marginLeft: 4,
+    padding: 2,
+  },
+  dateFilterClearText: {
+    fontSize: 12,
+    color: '#1976D2',
+    fontWeight: '700',
+  },
+  dateFilterResetBtn: {
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#FFF3E0',
+    borderWidth: 1,
+    borderColor: '#FFB74D',
+  },
+  dateFilterResetText: {
+    fontSize: 12,
+    color: '#E65100',
+    fontWeight: '700',
+  },
+  filterResultText: {
+    fontSize: 12,
+    color: '#888',
+    marginBottom: 8,
+    fontStyle: 'italic',
+  },
+
+  // ── Picker modal (yıl/ay)
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  pickerContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '60%',
+    paddingBottom: 20,
+  },
+  pickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  pickerHeaderText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: DARK,
+  },
+  pickerHeaderClose: {
+    fontSize: 20,
+    color: '#888',
+    fontWeight: '700',
+    padding: 4,
+  },
+  pickerItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+  },
+  pickerItemActive: {
+    backgroundColor: '#E3F2FD',
+  },
+  pickerItemText: {
+    fontSize: 16,
+    color: DARK,
+    fontWeight: '600',
+  },
+  pickerItemTextActive: {
+    color: '#1976D2',
+    fontWeight: '800',
+  },
+  pickerSeparator: {
+    height: 1,
+    backgroundColor: '#F5F5F5',
+    marginHorizontal: 16,
   },
 });

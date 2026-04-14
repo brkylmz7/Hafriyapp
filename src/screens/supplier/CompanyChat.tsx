@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, ActivityIndicator, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Modal, ScrollView, Image } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppSelector } from '../../hooks';
@@ -11,19 +11,23 @@ export default function CompanyChat() {
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
   const { group, company } = route.params;
-  const title = group?.name || company?.name;
-  const groupId = group?.id || company?.id;
+  const groupData = group || company;
+  const title = groupData?.name;
+  const groupId = groupData?.id;
   const insets = useSafeAreaInsets();
 
   const [messages, setMessages] = useState<any[]>([]);
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [detailVisible, setDetailVisible] = useState(false);
   const token = useAppSelector(state => state.auth.token);
 
+  // groupId değişince mesajları temizle ve yeniden yükle (farklı gruba geçişte eski mesajlar görünmesin)
   useEffect(() => {
+    setMessages([]);
     fetchMessages();
-  }, []);
+  }, [groupId]);
 
   const fetchMessages = async () => {
     if (!token || !groupId) return;
@@ -106,8 +110,9 @@ export default function CompanyChat() {
           {title}
         </Text>
 
-        {/* sağ taraf boş kalsın diye */}
-        <View style={{ width: 32 }} />
+        <TouchableOpacity onPress={() => setDetailVisible(true)} style={styles.detailBtn}>
+          <Text style={styles.detailBtnText}>ℹ︎ Detay</Text>
+        </TouchableOpacity>
       </View>
 
       <KeyboardAvoidingView
@@ -131,6 +136,91 @@ export default function CompanyChat() {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      {/* GRUP DETAY MODAL */}
+      <Modal
+        visible={detailVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setDetailVisible(false)}
+      >
+        <View style={styles.detailModal}>
+          {/* Banner */}
+          <View style={styles.detailBanner}>
+            <TouchableOpacity style={styles.detailClose} onPress={() => setDetailVisible(false)}>
+              <Text style={{ fontSize: 18, fontWeight: '700', color: '#333' }}>✕</Text>
+            </TouchableOpacity>
+            <View style={styles.detailAvatar}>
+              {groupData?.imageUrl ? (
+                <Image source={{ uri: groupData.imageUrl }} style={{ width: '100%', height: '100%', borderRadius: 35 }} />
+              ) : (
+                <Text style={{ fontSize: 30 }}>🏢</Text>
+              )}
+            </View>
+            <Text style={styles.detailGroupName}>{title}</Text>
+            <Text style={styles.detailMemberCount}>
+              {groupData?.memberCount ? `${groupData.memberCount} üye` : ''}
+            </Text>
+          </View>
+
+          {/* Detaylar */}
+          <ScrollView style={styles.detailBody}>
+            {!!groupData?.description && (
+              <View style={styles.detailItem}>
+                <View style={styles.iconBox}><Text>ℹ︎</Text></View>
+                <View style={styles.infoText}>
+                  <Text style={styles.detailLabel}>AÇIKLAMA</Text>
+                  <Text style={styles.detailValue}>{groupData.description}</Text>
+                </View>
+              </View>
+            )}
+
+            {!!groupData?.provinceName && (
+              <View style={styles.detailItem}>
+                <View style={styles.iconBox}><Text>📍</Text></View>
+                <View style={styles.infoText}>
+                  <Text style={styles.detailLabel}>BÖLGE</Text>
+                  <Text style={styles.detailValue}>{groupData.provinceName}</Text>
+                </View>
+              </View>
+            )}
+
+            {!!groupData?.ownerName && (
+              <View style={styles.detailItem}>
+                <View style={styles.iconBox}><Text>👤</Text></View>
+                <View style={styles.infoText}>
+                  <Text style={styles.detailLabel}>GRUP SAHİBİ</Text>
+                  <Text style={styles.detailValue}>{groupData.ownerName}</Text>
+                </View>
+              </View>
+            )}
+
+            {!!groupData?.createdDate && (
+              <View style={styles.detailItem}>
+                <View style={styles.iconBox}><Text>📅</Text></View>
+                <View style={styles.infoText}>
+                  <Text style={styles.detailLabel}>OLUŞTURULMA TARİHİ</Text>
+                  <Text style={styles.detailValue}>
+                    {new Date(groupData.createdDate).toLocaleDateString('tr-TR', { day: '2-digit', month: 'long', year: 'numeric' })}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {groupData?.isPublic !== undefined && (
+              <View style={styles.detailItem}>
+                <View style={styles.iconBox}><Text>{groupData.isPublic ? '🔓' : '🔒'}</Text></View>
+                <View style={styles.infoText}>
+                  <Text style={styles.detailLabel}>GRUP TÜRÜ</Text>
+                  <Text style={styles.detailValue}>{groupData.isPublic ? 'Herkese Açık' : 'Onaylı Katılım'}</Text>
+                </View>
+              </View>
+            )}
+
+            <View style={{ height: 40 }} />
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -216,11 +306,103 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: -2,
   },
-
   headerTitle: {
     flex: 1,
     textAlign: 'center',
     fontWeight: '700',
     fontSize: 16,
+  },
+  detailBtn: {
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+  detailBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#333',
+  },
+  /* DETAY MODAL */
+  detailModal: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  detailBanner: {
+    backgroundColor: YELLOW,
+    paddingTop: 30,
+    paddingBottom: 20,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+  },
+  detailClose: {
+    position: 'absolute',
+    top: 14,
+    right: 16,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    borderRadius: 20,
+    padding: 6,
+    zIndex: 10,
+  },
+  detailAvatar: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  detailGroupName: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  detailMemberCount: {
+    fontSize: 13,
+    color: '#555',
+    fontWeight: '600',
+  },
+  detailBody: {
+    padding: 20,
+  },
+  detailItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  iconBox: {
+    width: 36,
+    height: 36,
+    minWidth: 36,
+    backgroundColor: '#FFF3CD',
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  infoText: {
+    flex: 1,
+  },
+  detailLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#999',
+    marginBottom: 2,
+  },
+  detailValue: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#333',
   },
 });

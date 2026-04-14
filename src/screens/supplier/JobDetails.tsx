@@ -35,66 +35,81 @@ const checkOnline = async (): Promise<boolean> => {
   }
 };
 
-// ── Teklif tipi
-type Offer = { name: string; cash: number; fuel: number };
+// ── Teklif tipi (Hafriyat: cash=sabit/trip, fuel=sabit/trip | Kum/Mıcır: cash=cashPerTon, fuel=0)
+type Offer = {
+  name: string;
+  cash: number;
+  fuel: number;
+  material?: string;
+  cashPerTon?: number;
+  loading?: string;
+  unloading?: string;
+};
 
 // ── Job'dan teklifleri parse et
 const getOffersFromJob = (job: any): Offer[] => {
   const isKum = job?.jobType === 1;
   const offers: Offer[] = [];
 
-  console.log('🔍 [getOffersFromJob] jobType:', job?.jobType, '| offer1Name:', job?.offer1Name, '| extraOffersJson:', job?.extraOffersJson);
-
   if (isKum) {
     // ── Kum/Mıcır: rotalar extraOffersJson içinde {loading, unloading, cash, material}
     try {
       const extras = JSON.parse(job?.extraOffersJson || '[]');
-      console.log('📦 [Kum/Mıcır] extraOffersJson parsed:', JSON.stringify(extras));
       if (Array.isArray(extras)) {
         extras.forEach((e: any) => {
-          const name = `${e.loading || '-'} → ${e.unloading || '-'}`;
-          const cash = parseFloat(e.Cash ?? e.cash ?? 0) || 0;
-          offers.push({ name, cash, fuel: 0 });
+          const ld = e.loading || e.Loading || '-';
+          const ul = e.unloading || e.Unloading || '-';
+          const cashPerTon = parseFloat(e.Cash ?? e.cash ?? 0) || 0;
+          offers.push({
+            name: `${ld} → ${ul}`,
+            cash: cashPerTon,
+            fuel: 0,
+            material: e.material || e.Material || '',
+            cashPerTon,
+            loading: ld,
+            unloading: ul,
+          });
         });
       }
-    } catch (err) {
-      console.log('❌ [Kum/Mıcır] extraOffersJson parse hatası:', err);
-    }
+    } catch { }
   } else {
-    // ── Hafriyat: offer1Name + offer2Name + extraOffersJson
-    if (job?.offer1Name) {
-      offers.push({
-        name: job.offer1Name,
-        cash: Number(job.offer1Cash) || 0,
-        fuel: Number(job.offer1Fuel) || 0,
-      });
-    }
-    if (job?.offer2Name) {
-      offers.push({
-        name: job.offer2Name,
-        cash: Number(job.offer2Cash) || 0,
-        fuel: Number(job.offer2Fuel) || 0,
-      });
-    }
+    // ── Hafriyat: yeni birleşik format (isVisible) veya eski offer1Name + extraOffersJson
     try {
       const extras = JSON.parse(job?.extraOffersJson || '[]');
-      console.log('📦 [Hafriyat] extraOffersJson parsed:', JSON.stringify(extras));
-      if (Array.isArray(extras)) {
-        extras.forEach((e: any) => {
-          const name = e.Name || e.name || e.dumpLocation || e.DumpLocation;
-          const cash = parseFloat(e.Cash ?? e.cash ?? 0) || 0;
-          const fuel = parseFloat(e.Fuel ?? e.fuel ?? 0) || 0;
-          if (name) {
-            offers.push({ name, cash, fuel });
+      if (Array.isArray(extras) && extras.length > 0) {
+        const hasIsVisible = 'isVisible' in extras[0] || 'IsVisible' in extras[0];
+        if (hasIsVisible) {
+          // Yeni format: tüm teklifler extraOffersJson içinde
+          extras
+            .filter((e: any) => e.isVisible !== false && e.IsVisible !== false)
+            .forEach((e: any) => {
+              const name = e.name || e.Name || '-';
+              const cash = parseFloat(e.cash ?? e.Cash ?? 0) || 0;
+              const fuel = parseFloat(e.fuel ?? e.Fuel ?? 0) || 0;
+              offers.push({ name, cash, fuel });
+            });
+        } else {
+          // Eski format: offer1Name + extras
+          if (job?.offer1Name) {
+            offers.push({ name: job.offer1Name, cash: Number(job.offer1Cash) || 0, fuel: Number(job.offer1Fuel) || 0 });
           }
-        });
+          if (job?.offer2Name) {
+            offers.push({ name: job.offer2Name, cash: Number(job.offer2Cash) || 0, fuel: Number(job.offer2Fuel) || 0 });
+          }
+          extras.forEach((e: any) => {
+            const name = e.Name || e.name || e.dumpLocation || e.DumpLocation;
+            if (name) offers.push({ name, cash: parseFloat(e.Cash ?? e.cash ?? 0) || 0, fuel: parseFloat(e.Fuel ?? e.fuel ?? 0) || 0 });
+          });
+        }
       }
-    } catch (err) {
-      console.log('❌ [Hafriyat] extraOffersJson parse hatası:', err);
+    } catch { }
+    // Fallback: eğer JSON yoksa offer1Name'e bak
+    if (offers.length === 0 && job?.offer1Name) {
+      offers.push({ name: job.offer1Name, cash: Number(job.offer1Cash) || 0, fuel: Number(job.offer1Fuel) || 0 });
+      if (job?.offer2Name) offers.push({ name: job.offer2Name, cash: Number(job.offer2Cash) || 0, fuel: Number(job.offer2Fuel) || 0 });
     }
   }
 
-  console.log('✅ [getOffersFromJob] toplam teklif sayısı:', offers.length, '| teklifler:', JSON.stringify(offers));
   return offers;
 };
 
@@ -106,6 +121,7 @@ export default function JobDetails() {
 
   const token = useAppSelector(state => state.auth.token);
   const pendingQueue = useAppSelector(state => state.pendingHaul.queue);
+  const isKum = job?.jobType === 1;
 
   // ── Ana liste
   const [selectedHaul, setSelectedHaul] = useState<HaulApi | null>(null);
@@ -115,14 +131,15 @@ export default function JobDetails() {
   const [refreshing, setRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
-  // ── Sefer Gir (teklif) modal
+  // ── Sefer Gir modal
   const [addModal, setAddModal] = useState(false);
   const [formPlate, setFormPlate] = useState('');
   const [selectedOfferIdx, setSelectedOfferIdx] = useState<number | null>(null);
+  const [formTonage, setFormTonage] = useState('');   // Kum/Mıcır: kg
   const [formNote, setFormNote] = useState('');
   const [formSaving, setFormSaving] = useState(false);
 
-  // ── Manuel Ekle modal
+  // ── Manuel Ekle modal (Hafriyat alanları)
   const [manualModal, setManualModal] = useState(false);
   const [manualPlate, setManualPlate] = useState('');
   const [manualDump, setManualDump] = useState('');
@@ -130,6 +147,11 @@ export default function JobDetails() {
   const [manualFuel, setManualFuel] = useState('');
   const [manualTonage, setManualTonage] = useState('');
   const [manualNote, setManualNote] = useState('');
+  // ── Manuel Ekle modal (Kum/Mıcır alanları)
+  const [manualLoading, setManualLoading] = useState('');
+  const [manualUnloading, setManualUnloading] = useState('');
+  const [manualPricePerTon, setManualPricePerTon] = useState('');
+  const [manualMaterial, setManualMaterial] = useState('');
   const [manualSaving, setManualSaving] = useState(false);
 
   const pendingForThisJob = pendingQueue.filter(h => h.jobSiteId === job?.id);
@@ -219,12 +241,28 @@ export default function JobDetails() {
   const handleAddHaul = async (isPrinted: boolean) => {
     const cleanPlate = formPlate.replace(/\s/g, '').toUpperCase();
     if (!cleanPlate) { Alert.alert('Eksik Bilgi', 'Plaka numarası zorunludur.'); return; }
-    if (selectedOfferIdx === null) { Alert.alert('Eksik Bilgi', 'Teklif seçiniz.'); return; }
+    if (selectedOfferIdx === null) { Alert.alert('Eksik Bilgi', isKum ? 'Rota seçiniz.' : 'Teklif seçiniz.'); return; }
 
     const offer = offers[selectedOfferIdx];
-    const paymentType = offer.cash > 0 && offer.fuel > 0 ? 2 : offer.fuel > 0 ? 1 : 0;
-    const timeNow = new Date().toISOString();
 
+    // ── Kum/Mıcır: tonage zorunlu, cashAmount hesaplama
+    let tonageKg = 0;
+    let cashAmount = offer.cash;
+    let fuelAmount = offer.fuel;
+    let paymentType = offer.cash > 0 && offer.fuel > 0 ? 2 : offer.fuel > 0 ? 1 : 0;
+    let dumpLocation = '';
+
+    if (isKum) {
+      tonageKg = parseFloat(formTonage.replace(',', '.')) || 0;
+      if (tonageKg <= 0) { Alert.alert('Eksik Bilgi', 'Miktar (kg) giriniz.'); return; }
+      const cashPerTon = offer.cashPerTon ?? offer.cash;
+      cashAmount = parseFloat((cashPerTon * tonageKg / 1000).toFixed(2));
+      fuelAmount = 0;
+      paymentType = 0; // nakit
+      dumpLocation = offer.name; // "loading → unloading"
+    }
+
+    const timeNow = new Date().toISOString();
     setFormSaving(true);
     const online = await checkOnline();
 
@@ -235,9 +273,10 @@ export default function JobDetails() {
             jobSiteId: job.id,
             plateNumber: cleanPlate,
             paymentType,
-            cashAmount: offer.cash,
-            fuelAmount: offer.fuel,
-            tonage: 0,
+            cashAmount,
+            fuelAmount,
+            tonage: tonageKg,
+            dumpLocation,
             note: formNote.trim(),
             timeOfHaul: timeNow,
             isPrintedReceipt: isPrinted,
@@ -265,10 +304,10 @@ export default function JobDetails() {
         jobSiteId: job.id,
         plateNumber: cleanPlate,
         paymentType,
-        tonage: 0,
-        cashAmount: offer.cash,
-        fuelAmount: offer.fuel,
-        dumpLocation: '',
+        tonage: tonageKg,
+        cashAmount,
+        fuelAmount,
+        dumpLocation,
         note: formNote.trim(),
         isPrintedReceipt: isPrinted,
         timeOfHaul: timeNow,
@@ -285,14 +324,35 @@ export default function JobDetails() {
   const handleManualHaul = async () => {
     const cleanPlate = manualPlate.replace(/\s/g, '').toUpperCase();
     if (!cleanPlate) { Alert.alert('Eksik Bilgi', 'Plaka zorunludur.'); return; }
-    if (!manualDump.trim()) { Alert.alert('Eksik Bilgi', 'Döküm yeri zorunludur.'); return; }
 
-    const cash = parseFloat(manualCash.replace(',', '.')) || 0;
-    const fuel = parseFloat(manualFuel.replace(',', '.')) || 0;
-    const tonage = parseFloat(manualTonage.replace(',', '.')) || 0;
-    const paymentType = cash > 0 && fuel > 0 ? 2 : fuel > 0 ? 1 : 0;
+    let dumpLoc: string;
+    let cash: number;
+    let fuel: number;
+    let tonage: number;
+    let paymentType: number;
+
+    if (isKum) {
+      if (!manualLoading.trim()) { Alert.alert('Eksik Bilgi', 'Yükleme yeri zorunludur.'); return; }
+      if (!manualUnloading.trim()) { Alert.alert('Eksik Bilgi', 'Boşaltma yeri zorunludur.'); return; }
+      const pricePerTon = parseFloat(manualPricePerTon.replace(',', '.')) || 0;
+      if (pricePerTon <= 0) { Alert.alert('Eksik Bilgi', 'Ton başına fiyat giriniz.'); return; }
+      const kg = parseFloat(manualTonage.replace(',', '.')) || 0;
+      if (kg <= 0) { Alert.alert('Eksik Bilgi', 'Miktar (kg) giriniz.'); return; }
+      dumpLoc = `${manualLoading.trim()} → ${manualUnloading.trim()}`;
+      tonage = kg;
+      cash = parseFloat((pricePerTon * kg / 1000).toFixed(2));
+      fuel = 0;
+      paymentType = 0;
+    } else {
+      if (!manualDump.trim()) { Alert.alert('Eksik Bilgi', 'Döküm yeri zorunludur.'); return; }
+      dumpLoc = manualDump.trim();
+      cash = parseFloat(manualCash.replace(',', '.')) || 0;
+      fuel = parseFloat(manualFuel.replace(',', '.')) || 0;
+      tonage = parseFloat(manualTonage.replace(',', '.')) || 0;
+      paymentType = cash > 0 && fuel > 0 ? 2 : fuel > 0 ? 1 : 0;
+    }
+
     const timeNow = new Date().toISOString();
-
     setManualSaving(true);
     const online = await checkOnline();
 
@@ -306,7 +366,7 @@ export default function JobDetails() {
             cashAmount: cash,
             fuelAmount: fuel,
             tonage,
-            dumpLocation: manualDump.trim(),
+            dumpLocation: dumpLoc,
             note: manualNote.trim(),
             timeOfHaul: timeNow,
             isPrintedReceipt: false,
@@ -331,7 +391,7 @@ export default function JobDetails() {
         tonage,
         cashAmount: cash,
         fuelAmount: fuel,
-        dumpLocation: manualDump.trim(),
+        dumpLocation: dumpLoc,
         note: manualNote.trim(),
         isPrintedReceipt: false,
         timeOfHaul: timeNow,
@@ -367,6 +427,7 @@ export default function JobDetails() {
     setAddModal(false);
     setFormPlate('');
     setSelectedOfferIdx(null);
+    setFormTonage('');
     setFormNote('');
   };
 
@@ -378,6 +439,10 @@ export default function JobDetails() {
     setManualFuel('');
     setManualTonage('');
     setManualNote('');
+    setManualLoading('');
+    setManualUnloading('');
+    setManualPricePerTon('');
+    setManualMaterial('');
   };
 
   const formatDate = (dateString: string) => {
@@ -433,29 +498,40 @@ export default function JobDetails() {
   );
 
   // ── Özet çubuğu (compact tek satır)
-  const renderSummaryCards = () => (
-    <View style={styles.summaryBar}>
-      <View style={styles.summaryItem}>
-        <Text style={styles.summaryValue}>{hauls.length + pendingForThisJob.length}</Text>
-        <Text style={styles.summaryLabel}>Toplam</Text>
+  const renderSummaryCards = () => {
+    const todayStr = new Date().toDateString();
+    const todayCount = hauls.filter(h => new Date(h.timeOfHaul).toDateString() === todayStr).length
+      + pendingForThisJob.filter(h => new Date(h.timeOfHaul).toDateString() === todayStr).length;
+    const totalTonKg = hauls.reduce((a, h) => a + (h.tonage || 0), 0);
+    const totalTonDisplay = isKum
+      ? `${(totalTonKg / 1000).toFixed(1)}t`
+      : `${hauls.reduce((a, h) => a + (h.fuelAmount || 0), 0).toFixed(0)}lt`;
+    const totalTonLabel = isKum ? 'Toplam Ton' : 'Yakıt';
+
+    return (
+      <View style={styles.summaryBar}>
+        <View style={styles.summaryItem}>
+          <Text style={[styles.summaryValue, { color: '#E65100' }]}>{todayCount}</Text>
+          <Text style={styles.summaryLabel}>Bugün</Text>
+        </View>
+        <View style={styles.summaryDivider} />
+        <View style={styles.summaryItem}>
+          <Text style={styles.summaryValue}>{hauls.length + pendingForThisJob.length}</Text>
+          <Text style={styles.summaryLabel}>Toplam</Text>
+        </View>
+        <View style={styles.summaryDivider} />
+        <View style={styles.summaryItem}>
+          <Text style={[styles.summaryValue, { color: '#1976D2' }]}>{totalTonDisplay}</Text>
+          <Text style={styles.summaryLabel}>{totalTonLabel}</Text>
+        </View>
+        <View style={styles.summaryDivider} />
+        <View style={styles.summaryItem}>
+          <Text style={[styles.summaryValue, { color: '#E53935' }]}>{hauls.filter(h => !h.isPaid).length}</Text>
+          <Text style={styles.summaryLabel}>Bekliyor</Text>
+        </View>
       </View>
-      <View style={styles.summaryDivider} />
-      <View style={styles.summaryItem}>
-        <Text style={[styles.summaryValue, { color: '#4CAF50' }]}>{hauls.reduce((a, h) => a + (h.tonage || 0), 0)}</Text>
-        <Text style={styles.summaryLabel}>Ton</Text>
-      </View>
-      <View style={styles.summaryDivider} />
-      <View style={styles.summaryItem}>
-        <Text style={[styles.summaryValue, { color: '#1976D2' }]}>{hauls.filter(h => h.isPaid).length}</Text>
-        <Text style={styles.summaryLabel}>Ödendi</Text>
-      </View>
-      <View style={styles.summaryDivider} />
-      <View style={styles.summaryItem}>
-        <Text style={[styles.summaryValue, { color: '#E53935' }]}>{hauls.filter(h => !h.isPaid).length}</Text>
-        <Text style={styles.summaryLabel}>Bekliyor</Text>
-      </View>
-    </View>
-  );
+    );
+  };
 
   // ── Bekleyen satır (offline)
   const renderPendingItem = (item: PendingHaul) => (
@@ -474,8 +550,17 @@ export default function JobDetails() {
     </View>
   );
 
+  // ── Material lookup helper (Kum/Mıcır)
+  const getMaterialFromDumpLocation = (dumpLocation: string): string => {
+    if (!isKum || !dumpLocation) return '';
+    const match = offers.find(o => o.name === dumpLocation);
+    return match?.material || '';
+  };
+
   // ── Sefer kartı
-  const renderHaulItem = (item: HaulApi) => (
+  const renderHaulItem = (item: HaulApi) => {
+    const material = getMaterialFromDumpLocation(item.dumpLocation || '');
+    return (
     <View key={item.id} style={[styles.haulCard, item.isPaid ? styles.haulCardPaid : styles.haulCardUnpaid]}>
       <View style={styles.haulCardTop}>
         <Text style={styles.haulSerial}>{autoSerial(item)}{item.serialNumber ? `  #${item.serialNumber}` : ''}</Text>
@@ -491,10 +576,19 @@ export default function JobDetails() {
       <View style={styles.haulCardMid}>
         <View>
           <Text style={styles.haulDate}>{formatDate(item.timeOfHaul)}</Text>
-          <Text style={styles.haulPlate}>{item.plateNumber}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={styles.haulPlate}>{item.plateNumber}</Text>
+            {!!material && (
+              <View style={styles.materialBadge}><Text style={styles.materialBadgeText}>{material}</Text></View>
+            )}
+          </View>
         </View>
         <View style={{ alignItems: 'flex-end', gap: 4 }}>
-          {item.tonage > 0 && <Text style={styles.haulTonage}>{item.tonage} ton</Text>}
+          {item.tonage > 0 && (
+            <Text style={styles.haulTonage}>
+              {isKum ? `${item.tonage.toLocaleString('tr-TR')} kg` : `${(item.tonage / 1000).toFixed(2)} t`}
+            </Text>
+          )}
           {item.cashAmount > 0 && (
             <View style={styles.cashBadge}><Text style={styles.cashBadgeText}>{item.cashAmount.toLocaleString('tr-TR')} ₺</Text></View>
           )}
@@ -516,7 +610,8 @@ export default function JobDetails() {
         </View>
       </View>
     </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -612,11 +707,11 @@ export default function JobDetails() {
                       maxLength={14}
                     />
 
-                    {/* Teklif Seçiniz */}
-                    <Text style={[styles.fieldLabel, { marginTop: 18 }]}>Teklif Seçiniz</Text>
+                    {/* Rota / Teklif Seçiniz */}
+                    <Text style={[styles.fieldLabel, { marginTop: 18 }]}>{isKum ? 'Rota Seçiniz' : 'Teklif Seçiniz'}</Text>
                     {offers.length === 0 ? (
                       <View style={styles.noOfferBox}>
-                        <Text style={styles.noOfferText}>⚠ Bu şantiye için teklif tanımlanmamış.</Text>
+                        <Text style={styles.noOfferText}>⚠ Bu şantiye için {isKum ? 'rota' : 'teklif'} tanımlanmamış.</Text>
                       </View>
                     ) : (
                       offers.map((offer, idx) => (
@@ -627,13 +722,20 @@ export default function JobDetails() {
                         >
                           <View style={{ flex: 1 }}>
                             <Text style={styles.offerName}>{offer.name}</Text>
-                            <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
-                              {offer.cash > 0 && (
-                                <View style={styles.offerCashBadge}>
-                                  <Text style={styles.offerCashText}>{offer.cash.toLocaleString('tr-TR')} ₺</Text>
+                            <View style={{ flexDirection: 'row', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                              {isKum && !!offer.material && (
+                                <View style={styles.materialBadge}>
+                                  <Text style={styles.materialBadgeText}>{offer.material}</Text>
                                 </View>
                               )}
-                              {offer.fuel > 0 && (
+                              {offer.cash > 0 && (
+                                <View style={styles.offerCashBadge}>
+                                  <Text style={styles.offerCashText}>
+                                    {offer.cash.toLocaleString('tr-TR')} {isKum ? '₺/ton' : '₺'}
+                                  </Text>
+                                </View>
+                              )}
+                              {!isKum && offer.fuel > 0 && (
                                 <View style={styles.offerFuelBadge}>
                                   <Text style={styles.offerFuelText}>{offer.fuel.toLocaleString('tr-TR')} Lt</Text>
                                 </View>
@@ -645,6 +747,30 @@ export default function JobDetails() {
                           </View>
                         </TouchableOpacity>
                       ))
+                    )}
+
+                    {/* Kum/Mıcır: Miktar (kg) */}
+                    {isKum && (
+                      <>
+                        <Text style={[styles.fieldLabel, { marginTop: 18 }]}>Miktar (kg) <Text style={styles.req}>*</Text></Text>
+                        <TextInput
+                          value={formTonage}
+                          onChangeText={t => setFormTonage(t.replace(/[^0-9,]/g, ''))}
+                          style={styles.textInput}
+                          placeholder="Örn: 12000"
+                          keyboardType="decimal-pad"
+                        />
+                        {selectedOfferIdx !== null && !!formTonage && (
+                          <View style={styles.calcBox}>
+                            <Text style={styles.calcBoxText}>
+                              Hesaplanan Tutar: {(
+                                (offers[selectedOfferIdx]?.cashPerTon ?? offers[selectedOfferIdx]?.cash ?? 0) *
+                                (parseFloat(formTonage.replace(',', '.')) || 0) / 1000
+                              ).toFixed(2)} ₺
+                            </Text>
+                          </View>
+                        )}
+                      </>
                     )}
 
                     {/* Not */}
@@ -665,16 +791,16 @@ export default function JobDetails() {
                       <Text style={styles.cancelBtnText}>İptal</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[styles.sanalBtn, (!formPlate || selectedOfferIdx === null || formSaving) && { opacity: 0.4 }]}
+                      style={[styles.sanalBtn, (!formPlate || selectedOfferIdx === null || (isKum && !formTonage) || formSaving) && { opacity: 0.4 }]}
                       onPress={() => handleAddHaul(false)}
-                      disabled={!formPlate || selectedOfferIdx === null || formSaving}
+                      disabled={!formPlate || selectedOfferIdx === null || (isKum && !formTonage) || formSaving}
                     >
                       <Text style={styles.sanalBtnText}>Sanal Fiş Kes</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[styles.printSubmitBtn, (!formPlate || selectedOfferIdx === null || formSaving) && { opacity: 0.4 }]}
+                      style={[styles.printSubmitBtn, (!formPlate || selectedOfferIdx === null || (isKum && !formTonage) || formSaving) && { opacity: 0.4 }]}
                       onPress={() => handleAddHaul(true)}
-                      disabled={!formPlate || selectedOfferIdx === null || formSaving}
+                      disabled={!formPlate || selectedOfferIdx === null || (isKum && !formTonage) || formSaving}
                     >
                       <Text style={styles.printSubmitBtnText}>
                         {formSaving ? '...' : 'Fiş Kes ve Yazdır'}
@@ -715,48 +841,117 @@ export default function JobDetails() {
                       maxLength={14}
                     />
 
-                    {/* Döküm Yeri */}
-                    <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Döküm Yeri / Açıklama <Text style={styles.req}>*</Text></Text>
-                    <TextInput
-                      value={manualDump}
-                      onChangeText={setManualDump}
-                      style={styles.textInput}
-                      placeholder="Örn: Serbest Döküm"
-                    />
-
-                    {/* Nakit + Mazot */}
-                    <View style={{ flexDirection: 'row', gap: 12, marginTop: 14 }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.fieldLabel, { color: '#2E7D32' }]}>Nakit (TL)</Text>
+                    {isKum ? (
+                      <>
+                        {/* Yükleme Yeri */}
+                        <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Yükleme Yeri <Text style={styles.req}>*</Text></Text>
                         <TextInput
-                          value={manualCash}
-                          onChangeText={t => setManualCash(t.replace(/[^0-9,]/g, ''))}
+                          value={manualLoading}
+                          onChangeText={setManualLoading}
+                          style={styles.textInput}
+                          placeholder="Örn: Ocak Adı"
+                        />
+
+                        {/* Boşaltma Yeri */}
+                        <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Boşaltma Yeri <Text style={styles.req}>*</Text></Text>
+                        <TextInput
+                          value={manualUnloading}
+                          onChangeText={setManualUnloading}
+                          style={styles.textInput}
+                          placeholder="Örn: Şantiye Adı"
+                        />
+
+                        {/* Malzeme */}
+                        <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Malzeme <Text style={styles.optional}>(Opsiyonel)</Text></Text>
+                        <TextInput
+                          value={manualMaterial}
+                          onChangeText={setManualMaterial}
+                          style={styles.textInput}
+                          placeholder="Örn: Kum, Mıcır"
+                        />
+
+                        {/* Fiyat/ton + Miktar */}
+                        <View style={{ flexDirection: 'row', gap: 12, marginTop: 14 }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.fieldLabel, { color: '#2E7D32' }]}>Fiyat (₺/ton) <Text style={styles.req}>*</Text></Text>
+                            <TextInput
+                              value={manualPricePerTon}
+                              onChangeText={t => setManualPricePerTon(t.replace(/[^0-9,]/g, ''))}
+                              style={styles.textInput}
+                              placeholder="0"
+                              keyboardType="decimal-pad"
+                            />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.fieldLabel, { color: '#E65100' }]}>Miktar (kg) <Text style={styles.req}>*</Text></Text>
+                            <TextInput
+                              value={manualTonage}
+                              onChangeText={t => setManualTonage(t.replace(/[^0-9,]/g, ''))}
+                              style={styles.textInput}
+                              placeholder="0"
+                              keyboardType="decimal-pad"
+                            />
+                          </View>
+                        </View>
+
+                        {/* Hesaplanan Tutar */}
+                        {!!manualPricePerTon && !!manualTonage && (
+                          <View style={styles.calcBox}>
+                            <Text style={styles.calcBoxText}>
+                              Hesaplanan Tutar: {(
+                                (parseFloat(manualPricePerTon.replace(',', '.')) || 0) *
+                                (parseFloat(manualTonage.replace(',', '.')) || 0) / 1000
+                              ).toFixed(2)} ₺
+                            </Text>
+                          </View>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {/* Döküm Yeri */}
+                        <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Döküm Yeri / Açıklama <Text style={styles.req}>*</Text></Text>
+                        <TextInput
+                          value={manualDump}
+                          onChangeText={setManualDump}
+                          style={styles.textInput}
+                          placeholder="Örn: Serbest Döküm"
+                        />
+
+                        {/* Nakit + Mazot */}
+                        <View style={{ flexDirection: 'row', gap: 12, marginTop: 14 }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.fieldLabel, { color: '#2E7D32' }]}>Nakit (TL)</Text>
+                            <TextInput
+                              value={manualCash}
+                              onChangeText={t => setManualCash(t.replace(/[^0-9,]/g, ''))}
+                              style={styles.textInput}
+                              placeholder="0"
+                              keyboardType="decimal-pad"
+                            />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.fieldLabel, { color: '#E65100' }]}>Mazot (Lt)</Text>
+                            <TextInput
+                              value={manualFuel}
+                              onChangeText={t => setManualFuel(t.replace(/[^0-9,]/g, ''))}
+                              style={styles.textInput}
+                              placeholder="0"
+                              keyboardType="decimal-pad"
+                            />
+                          </View>
+                        </View>
+
+                        {/* Tonaj */}
+                        <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Tonaj <Text style={styles.optional}>(Opsiyonel)</Text></Text>
+                        <TextInput
+                          value={manualTonage}
+                          onChangeText={t => setManualTonage(t.replace(/[^0-9,]/g, ''))}
                           style={styles.textInput}
                           placeholder="0"
                           keyboardType="decimal-pad"
                         />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.fieldLabel, { color: '#E65100' }]}>Mazot (Lt)</Text>
-                        <TextInput
-                          value={manualFuel}
-                          onChangeText={t => setManualFuel(t.replace(/[^0-9,]/g, ''))}
-                          style={styles.textInput}
-                          placeholder="0"
-                          keyboardType="decimal-pad"
-                        />
-                      </View>
-                    </View>
-
-                    {/* Tonaj */}
-                    <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Tonaj <Text style={styles.optional}>(Opsiyonel)</Text></Text>
-                    <TextInput
-                      value={manualTonage}
-                      onChangeText={t => setManualTonage(t.replace(/[^0-9,]/g, ''))}
-                      style={styles.textInput}
-                      placeholder="0"
-                      keyboardType="decimal-pad"
-                    />
+                      </>
+                    )}
 
                     {/* Not */}
                     <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Not <Text style={styles.optional}>(Opsiyonel)</Text></Text>
@@ -775,9 +970,17 @@ export default function JobDetails() {
                       <Text style={styles.cancelBtnText}>İptal</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[styles.manualSaveBtn, (!manualPlate || !manualDump || manualSaving) && { opacity: 0.4 }]}
+                      style={[styles.manualSaveBtn, (
+                        !manualPlate ||
+                        (isKum ? (!manualLoading || !manualUnloading || !manualPricePerTon || !manualTonage) : !manualDump) ||
+                        manualSaving
+                      ) && { opacity: 0.4 }]}
                       onPress={handleManualHaul}
-                      disabled={!manualPlate || !manualDump || manualSaving}
+                      disabled={
+                        !manualPlate ||
+                        (isKum ? (!manualLoading || !manualUnloading || !manualPricePerTon || !manualTonage) : !manualDump) ||
+                        manualSaving
+                      }
                     >
                       <Text style={styles.manualSaveBtnText}>
                         {manualSaving ? 'Kaydediliyor...' : '✔ Kaydet'}
@@ -795,64 +998,118 @@ export default function JobDetails() {
       {selectedHaul && (
         <Modal visible={receiptVisible} transparent animationType="fade" onRequestClose={() => setReceiptVisible(false)}>
           <View style={styles.modalOverlay}>
-            <View style={styles.receiptModal}>
-              {/* Header sarı */}
-              <View style={styles.receiptModalHeader}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.receiptCompany}>
-                    {(selectedHaul.companyName || 'HAFRİYAT').toUpperCase()}
-                  </Text>
-                  <Text style={styles.receiptJobsite}>{selectedHaul.jobSiteName || job?.name}</Text>
-                  <View style={{ flexDirection: 'row', marginTop: 8, gap: 8 }}>
-                    <Text style={styles.receiptDate}>
-                      {new Date(selectedHaul.timeOfHaul).toLocaleDateString('tr-TR')}
+            {/* Fiş kart */}
+            <View style={styles.receiptCard}>
+
+              {/* Sol şerit — "HAFRİYAPP" dikey */}
+              <View style={styles.receiptStrip}>
+                <Text style={styles.receiptStripText}>HAFRİYAPP</Text>
+              </View>
+
+              {/* Ana içerik */}
+              <View style={styles.receiptMain}>
+
+                {/* ── Başlık: firma + saat + QR ── */}
+                <View style={styles.receiptHead}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.receiptCompanyName}>
+                      {(selectedHaul.companyName || 'HAFRİYAT').toUpperCase()}
                     </Text>
-                    <Text style={styles.receiptTime}>
-                      {new Date(selectedHaul.timeOfHaul).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                    <Text style={styles.receiptDistrict}>
+                      {job?.districtName || job?.provinceName || ''}
                     </Text>
                   </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={styles.receiptTimeText}>
+                      {new Date(selectedHaul.timeOfHaul).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                    {selectedHaul.qrCodeBase64 && (
+                      <Image
+                        source={{ uri: `data:image/png;base64,${selectedHaul.qrCodeBase64}` }}
+                        style={styles.receiptQRImg}
+                      />
+                    )}
+                  </View>
                 </View>
-                {selectedHaul.qrCodeBase64 && (
-                  <Image
-                    source={{ uri: `data:image/png;base64,${selectedHaul.qrCodeBase64}` }}
-                    style={styles.receiptQR}
-                  />
-                )}
-              </View>
 
-              {/* Body */}
-              <View style={styles.receiptBody}>
-                <View style={styles.receiptRow}><Text style={styles.receiptLabel}>Seri No</Text><Text style={styles.receiptValue}>{autoSerial(selectedHaul)}</Text></View>
-                <View style={styles.receiptRow}><Text style={styles.receiptLabel}>Plaka</Text><Text style={[styles.receiptValue, { fontWeight: '800' }]}>{selectedHaul.plateNumber}</Text></View>
-                {selectedHaul.driverName || selectedHaul.driverPhone ? (
-                  <View style={styles.receiptRow}><Text style={styles.receiptLabel}>Şoför</Text><Text style={styles.receiptValue}>{selectedHaul.driverName || selectedHaul.driverPhone}</Text></View>
-                ) : null}
-                <View style={styles.receiptRow}><Text style={styles.receiptLabel}>Döküm</Text><Text style={styles.receiptValue}>{selectedHaul.dumpLocation || '-'}</Text></View>
-                {selectedHaul.tonage > 0 && (
-                  <View style={styles.receiptRow}><Text style={styles.receiptLabel}>Tonaj</Text><Text style={styles.receiptValue}>{selectedHaul.tonage.toFixed(2)} Ton</Text></View>
-                )}
-                <View style={[styles.receiptRow, styles.dashedLine]}>
-                  <Text style={[styles.receiptLabel, { fontWeight: '700' }]}>ÜCRET</Text>
-                  <Text style={[styles.receiptValue, { fontSize: 15, fontWeight: '800' }]}>
-                    {selectedHaul.cashAmount > 0 ? `${selectedHaul.cashAmount.toLocaleString('tr-TR')} TL` : ''}
-                    {selectedHaul.cashAmount > 0 && selectedHaul.fuelAmount > 0 ? ' / ' : ''}
-                    {selectedHaul.fuelAmount > 0 ? `${selectedHaul.fuelAmount.toLocaleString('tr-TR')} Lt` : ''}
-                    {!selectedHaul.cashAmount && !selectedHaul.fuelAmount ? '-' : ''}
+                {/* Tarih satırı */}
+                <View style={styles.receiptDateRow}>
+                  <Text style={styles.receiptDateText}>
+                    {new Date(selectedHaul.timeOfHaul).toLocaleDateString('tr-TR')}
                   </Text>
                 </View>
-                {selectedHaul.contactPhone ? (
-                  <View style={styles.receiptRow}><Text style={styles.receiptLabel}>Yetkili</Text><Text style={styles.receiptValue}>{selectedHaul.contactPhone}</Text></View>
-                ) : null}
-              </View>
 
-              {/* Footer */}
-              <View style={styles.receiptFooter}>
-                <TouchableOpacity style={styles.printReceiptBtn} onPress={() => triggerPrint(selectedHaul)}>
-                  <Text style={styles.printReceiptBtnText}>🖨 Yazdır</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.closeBtn} onPress={() => setReceiptVisible(false)}>
-                  <Text style={styles.closeBtnText}>Kapat</Text>
-                </TouchableOpacity>
+                {/* ── Satırlar ── */}
+                <View style={styles.receiptBody}>
+                  {/* Seri No */}
+                  <View style={styles.receiptRow}>
+                    <Text style={styles.receiptRowLabel}>Seri No</Text>
+                    <Text style={styles.receiptRowValue}>{autoSerial(selectedHaul)}</Text>
+                  </View>
+
+                  {/* Plaka + Şoför */}
+                  <View style={styles.receiptRow}>
+                    <Text style={styles.receiptRowLabel}>Plaka</Text>
+                    <Text style={[styles.receiptRowValue, { fontWeight: '800' }]}>
+                      {selectedHaul.plateNumber}
+                      {(selectedHaul.driverName || selectedHaul.driverPhone)
+                        ? `   Şoför  ${selectedHaul.driverName || selectedHaul.driverPhone}`
+                        : ''}
+                    </Text>
+                  </View>
+
+                  {/* Döküm */}
+                  <View style={styles.receiptRow}>
+                    <Text style={styles.receiptRowLabel}>Döküm</Text>
+                    <Text style={[styles.receiptRowValue, { fontWeight: '800' }]}>
+                      {selectedHaul.dumpLocation || '-'}
+                    </Text>
+                  </View>
+
+                  {/* Tonaj (opsiyonel) */}
+                  {selectedHaul.tonage > 0 && (
+                    <View style={styles.receiptRow}>
+                      <Text style={styles.receiptRowLabel}>Tonaj</Text>
+                      <Text style={styles.receiptRowValue}>{selectedHaul.tonage.toFixed(2)} Ton</Text>
+                    </View>
+                  )}
+
+                  {/* Ücret */}
+                  <View style={[styles.receiptRow, styles.receiptRowUcret]}>
+                    <Text style={[styles.receiptRowLabel, { fontWeight: '700' }]}>Ücret</Text>
+                    <Text style={[styles.receiptRowValue, { fontSize: 15, fontWeight: '800' }]}>
+                      {[
+                        selectedHaul.cashAmount > 0 ? `${selectedHaul.cashAmount.toLocaleString('tr-TR')}₺` : '',
+                        selectedHaul.fuelAmount > 0 ? `${selectedHaul.fuelAmount.toLocaleString('tr-TR')}lt` : '',
+                      ].filter(Boolean).join('/') || '-'}
+                    </Text>
+                  </View>
+
+                  {/* Yetkili */}
+                  {!!selectedHaul.contactPhone && (
+                    <View style={[styles.receiptRow, { borderBottomWidth: 0 }]}>
+                      <Text style={styles.receiptRowLabel}>Yetkili</Text>
+                      <Text style={styles.receiptRowValue}>{selectedHaul.contactPhone}</Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* ── Footer butonlar ── */}
+                <View style={styles.receiptFooterRow}>
+                  <TouchableOpacity
+                    style={styles.receiptCloseBtnNew}
+                    onPress={() => setReceiptVisible(false)}
+                  >
+                    <Text style={styles.receiptCloseBtnNewText}>Kapat</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.receiptPrintBtnNew}
+                    onPress={() => triggerPrint(selectedHaul)}
+                  >
+                    <Text style={styles.receiptPrintBtnNewText}>🖨 Yazdır</Text>
+                  </TouchableOpacity>
+                </View>
+
               </View>
             </View>
           </View>
@@ -1000,6 +1257,14 @@ const styles = StyleSheet.create({
     minHeight: 60, textAlignVertical: 'top',
   },
 
+  // Material badge (Kum/Mıcır)
+  materialBadge: { backgroundColor: '#E3F2FD', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#90CAF9' },
+  materialBadgeText: { fontSize: 11, color: '#1565C0', fontWeight: '700' },
+
+  // Hesaplanan tutar kutusu
+  calcBox: { backgroundColor: '#E8F5E9', borderRadius: 8, padding: 10, marginTop: 8, borderWidth: 1, borderColor: '#A5D6A7' },
+  calcBoxText: { color: '#2E7D32', fontWeight: '700', fontSize: 14, textAlign: 'center' },
+
   // Offer items
   noOfferBox: { backgroundColor: '#FFF8E1', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#FFD54F' },
   noOfferText: { color: '#E65100', fontSize: 13, fontWeight: '600' },
@@ -1028,25 +1293,156 @@ const styles = StyleSheet.create({
   manualSaveBtn: { flex: 1, backgroundColor: '#4CAF50', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
   manualSaveBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
 
-  // ── Fiş Detay Modal
-  receiptModal: { width: '90%', backgroundColor: '#FFFBE6', borderRadius: 16, overflow: 'hidden' },
-  receiptModalHeader: { backgroundColor: YELLOW, padding: 18, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  receiptCompany: { fontSize: 18, fontWeight: '800', color: DARK },
-  receiptJobsite: { fontSize: 13, color: '#555', marginTop: 2 },
-  receiptDate: { fontSize: 13, fontWeight: '600', color: DARK },
-  receiptTime: { fontSize: 16, fontWeight: '800', color: DARK },
-  receiptQR: { width: 76, height: 76, backgroundColor: '#fff', borderRadius: 8 },
-  receiptBody: { padding: 18 },
-  receiptRow: {
-    flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8,
-    borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.08)', borderStyle: 'dashed',
+  // ── Fiş Detay Modal (yeni tasarım)
+  receiptCard: {
+    width: '90%',
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    elevation: 10,
   },
-  receiptLabel: { fontSize: 13, color: '#888' },
-  receiptValue: { fontSize: 13, color: DARK, fontWeight: '600', maxWidth: '65%', textAlign: 'right' },
-  dashedLine: { borderBottomColor: 'rgba(0,0,0,0.2)' },
-  receiptFooter: { flexDirection: 'row', gap: 10, padding: 16 },
-  printReceiptBtn: { flex: 1, backgroundColor: '#1976D2', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
-  printReceiptBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  closeBtn: { flex: 1, backgroundColor: '#fff', borderWidth: 1.5, borderColor: '#ccc', paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
-  closeBtnText: { color: '#555', fontWeight: '700', fontSize: 14 },
+
+  // Sol dikey şerit
+  receiptStrip: {
+    width: 32,
+    backgroundColor: '#2c2c2c',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  receiptStripText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 2.5,
+    transform: [{ rotate: '-90deg' }],
+    width: 120,
+    textAlign: 'center',
+  },
+
+  // Ana içerik alanı
+  receiptMain: {
+    flex: 1,
+  },
+
+  // Başlık satırı
+  receiptHead: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 10,
+  },
+  receiptCompanyName: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: DARK,
+    letterSpacing: 0.5,
+  },
+  receiptDistrict: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  receiptTimeText: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: DARK,
+  },
+  receiptQRImg: {
+    width: 70,
+    height: 70,
+    borderRadius: 6,
+    marginTop: 6,
+    backgroundColor: '#f0f0f0',
+  },
+
+  // Tarih satırı
+  receiptDateRow: {
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    borderBottomWidth: 1.5,
+    borderBottomColor: '#ddd',
+  },
+  receiptDateText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#444',
+  },
+
+  // Satırlar
+  receiptBody: {
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 4,
+  },
+  receiptRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 9,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.07)',
+    borderStyle: 'dashed',
+  },
+  receiptRowUcret: {
+    borderBottomColor: 'rgba(0,0,0,0.18)',
+    borderBottomWidth: 1.5,
+  },
+  receiptRowLabel: {
+    fontSize: 13,
+    color: '#888',
+    fontWeight: '500',
+    minWidth: 58,
+  },
+  receiptRowValue: {
+    fontSize: 13,
+    color: DARK,
+    fontWeight: '600',
+    flex: 1,
+    textAlign: 'right',
+    paddingLeft: 8,
+  },
+
+  // Footer butonlar
+  receiptFooterRow: {
+    flexDirection: 'row',
+    gap: 10,
+    padding: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    marginTop: 4,
+  },
+  receiptCloseBtnNew: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: '#ccc',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  receiptCloseBtnNewText: {
+    color: '#555',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  receiptPrintBtnNew: {
+    flex: 1,
+    backgroundColor: '#2c2c2c',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  receiptPrintBtnNewText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
 });

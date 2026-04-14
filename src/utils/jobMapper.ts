@@ -1,42 +1,79 @@
+const API_BASE = 'https://api.hafriyapp.com/api';
+
+function resolveLogoUrl(path?: string): any {
+  if (!path) return require('../../assets/logokarakalem.png');
+  if (path.startsWith('data:image') || path.startsWith('http')) return { uri: path };
+  if (path.startsWith('/uploads')) return { uri: `https://api.hafriyapp.com${path}` };
+  // eski base64 (prefix'siz)
+  return { uri: `data:image/png;base64,${path}` };
+}
+
 export const mapJobFromApi = (item: any) => {
   // ─── Hafriyat/Döküm: dumps (döküm yeri + nakit + mazot) ──────────────────
   let dumps: { place: string; cash: string; fuel: string }[] = [];
 
   if (item.jobType !== 1) {
-    // 1. Offer 1
-    if (item.offer1Name) {
-      dumps.push({
-        place: item.offer1Name,
-        cash: item.offer1Cash ? `${item.offer1Cash}₺` : '-',
-        fuel: item.offer1Fuel ? `${item.offer1Fuel} LT` : '-',
-      });
-    }
-
-    // 2. extraOffersJson
+    // 1. ExtraOffersJson: yeni birleşik format (isVisible property'li)
     if (item.extraOffersJson) {
       try {
         const parsed = JSON.parse(item.extraOffersJson);
-        if (Array.isArray(parsed)) {
-          parsed.forEach((o: any) => {
-            dumps.push({
-              place: o.dumpLocation || o.name || o.unloading || '-',
-              cash: o.cash ? `${o.cash}₺` : '-',
-              fuel: o.fuel ? `${o.fuel} LT` : '-',
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const hasIsVisible = 'isVisible' in parsed[0] || 'IsVisible' in parsed[0];
+          // Yeni format: extraOffersJson tüm teklifleri içeriyor
+          if (hasIsVisible) {
+            dumps = parsed
+              .filter((o: any) => o.isVisible !== false && o.IsVisible !== false)
+              .map((o: any) => ({
+                place: o.name || o.Name || '-',
+                cash: o.cash ? `${o.cash}₺` : '-',
+                fuel: o.fuel ? `${o.fuel} LT` : '-',
+              }));
+          } else {
+            // Eski extras format: Offer1 + Offer2 + extras birleştir
+            if (item.offer1Name) {
+              dumps.push({
+                place: item.offer1Name,
+                cash: item.offer1Cash ? `${item.offer1Cash}₺` : '-',
+                fuel: item.offer1Fuel ? `${item.offer1Fuel} LT` : '-',
+              });
+            }
+            if (item.offer2Name) {
+              dumps.push({
+                place: item.offer2Name,
+                cash: item.offer2Cash ? `${item.offer2Cash}₺` : '-',
+                fuel: item.offer2Fuel ? `${item.offer2Fuel} LT` : '-',
+              });
+            }
+            parsed.forEach((o: any) => {
+              dumps.push({
+                place: o.dumpLocation || o.name || o.Name || '-',
+                cash: o.cash ? `${o.cash}₺` : '-',
+                fuel: o.fuel ? `${o.fuel} LT` : '-',
+              });
             });
-          });
+          }
         }
       } catch (e) {
         console.log('extraOffersJson parse error', e);
       }
     }
 
-    // Fallback: offer2
-    if (dumps.length === 0 && item.offer2Name) {
-      dumps.push({
-        place: item.offer2Name,
-        cash: item.offer2Cash ? `${item.offer2Cash}₺` : '-',
-        fuel: item.offer2Fuel ? `${item.offer2Fuel} LT` : '-',
-      });
+    // Fallback: extraOffersJson yoksa veya parse başarısız olursa Offer1/Offer2
+    if (dumps.length === 0) {
+      if (item.offer1Name) {
+        dumps.push({
+          place: item.offer1Name,
+          cash: item.offer1Cash ? `${item.offer1Cash}₺` : '-',
+          fuel: item.offer1Fuel ? `${item.offer1Fuel} LT` : '-',
+        });
+      }
+      if (item.offer2Name) {
+        dumps.push({
+          place: item.offer2Name,
+          cash: item.offer2Cash ? `${item.offer2Cash}₺` : '-',
+          fuel: item.offer2Fuel ? `${item.offer2Fuel} LT` : '-',
+        });
+      }
     }
   }
 
@@ -47,12 +84,14 @@ export const mapJobFromApi = (item: any) => {
     try {
       const parsed = JSON.parse(item.extraOffersJson);
       if (Array.isArray(parsed)) {
-        routes = parsed.map((r: any) => ({
-          loading: r.loading || '-',
-          unloading: r.unloading || '-',
-          cash: r.cash != null ? `${r.cash}₺/ton` : '-',
-          material: r.material || '-',
-        }));
+        routes = parsed
+          .filter((r: any) => r.loading !== undefined || r.Loading !== undefined)
+          .map((r: any) => ({
+            loading: r.loading || r.Loading || '-',
+            unloading: r.unloading || r.Unloading || '-',
+            cash: r.cash != null ? `${r.cash}₺/ton` : '-',
+            material: r.material || r.Material || '-',
+          }));
       }
     } catch (e) {
       console.log('extraOffersJson (kum/mıcır) parse error', e);
@@ -66,9 +105,7 @@ export const mapJobFromApi = (item: any) => {
     jobType: item.jobType, // 0: Hafriyat, 1: Kum/Mıcır
     loadingStartTime: item.loadingStartTime,
     loadingEndTime: item.loadingEndTime,
-    logo: item.companyLogoBase64
-      ? { uri: item.companyLogoBase64 }
-      : require('../../assets/logokarakalem.png'),
+    logo: resolveLogoUrl(item.companyLogoPath ?? item.companyLogoBase64),
 
     dumps,   // Hafriyat
     routes,  // Kum/Mıcır
@@ -79,7 +116,10 @@ export const mapJobFromApi = (item: any) => {
     phone: item.contactPhone,
     locationUrl: item.locationUrl,
     description: item.description,
+    signDescription: item.signDescription,   // Tabela açıklaması
     provinceCode: item.provinceCode,
+    provinceName: item.provinceName ?? '',
     districtName: item.districtName ?? '',
+    isActive: item.isActive,
   };
 };
