@@ -70,16 +70,18 @@ export default function MyJobs() {
   const token = useAppSelector(state => state.auth.token);
   const [jobs, setJobs] = useState<JobUI[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | undefined>(undefined);
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<'ALL' | 'HAFRIYAT' | 'KUM'>('ALL');
   const insets = useSafeAreaInsets();
 
-  const fetchJobs = async () => {
+  const fetchJobs = async (isRefresh = false) => {
     if (!token) return;
     try {
-      setLoading(true);
+      if (isRefresh) setRefreshing(true);
+      else setLoading(true);
 
       const data = await getJobSites(token);
 
@@ -99,9 +101,10 @@ export default function MyJobs() {
               new Date(h.timeOfHaul).toDateString() === todayStr
             ).length;
 
-            const totalFuel = hauls.reduce((s: number, h: any) => s + (h.fuelAmount ?? 0), 0);
-            const totalCash = hauls.reduce((s: number, h: any) => s + (h.cashAmount ?? 0), 0);
-            const totalTon = hauls.reduce((s: number, h: any) => s + (h.tonage ?? 0), 0) / 1000;
+            const paidHauls = hauls.filter((h: any) => h.isPaid);
+            const totalFuel = paidHauls.reduce((s: number, h: any) => s + (h.fuelAmount ?? 0), 0);
+            const totalCash = paidHauls.reduce((s: number, h: any) => s + (h.cashAmount ?? 0), 0);
+            const totalTon = paidHauls.reduce((s: number, h: any) => s + (h.tonage ?? 0), 0) / 1000;
 
             fuelGiven = `${totalFuel.toFixed(0)} lt`;
             cashGiven = `${totalCash.toFixed(0)}₺`;
@@ -133,6 +136,7 @@ export default function MyJobs() {
       console.log('JobSite fetch error:', err);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -241,8 +245,8 @@ export default function MyJobs() {
           {!isKum && (
             <View style={styles.infoBox}>
               <Text style={styles.infoBoxTitle}>Kaynak Durumu</Text>
-              <Text style={styles.infoBoxRow}>Nakit: {item.cashGiven}</Text>
-              <Text style={styles.infoBoxRow}>Yakıt: {item.fuelGiven}</Text>
+              <Text style={[styles.infoBoxRow, { color: '#E53935' }]}>Nakit: {item.cashGiven}</Text>
+              <Text style={[styles.infoBoxRow, { color: '#E53935' }]}>Yakıt: {item.fuelGiven}</Text>
               <Text style={[styles.infoBoxRow, { color: '#1565C0' }]}>Kalan: {item.fuelLeft}</Text>
             </View>
           )}
@@ -308,10 +312,18 @@ export default function MyJobs() {
             value={search}
             onChangeText={setSearch}
           />
+          <TouchableOpacity
+            style={styles.refreshBtn}
+            onPress={() => fetchJobs(true)}
+            activeOpacity={0.7}
+            disabled={refreshing}
+          >
+            <Text style={[styles.refreshIcon, refreshing && { opacity: 0.4 }]}>↻</Text>
+          </TouchableOpacity>
         </View>
 
         {/* FİLTRE */}
-        <View style={styles.filterRow}>
+        {/* <View style={styles.filterRow}>
           {(['ALL', 'HAFRIYAT', 'KUM'] as const).map(type => (
             <TouchableOpacity
               key={type}
@@ -323,7 +335,7 @@ export default function MyJobs() {
               </Text>
             </TouchableOpacity>
           ))}
-        </View>
+        </View> */}
 
         <FlatList
           data={filteredJobs}
@@ -332,6 +344,8 @@ export default function MyJobs() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
           style={{ marginTop: '2%' }}
+          refreshing={refreshing}
+          onRefresh={() => fetchJobs(true)}
           ListEmptyComponent={
             <Text style={styles.emptyText}>Sonuç bulunamadı</Text>
           }
@@ -546,11 +560,15 @@ const styles = StyleSheet.create({
   },
 
   searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     paddingHorizontal: 12,
     marginBottom: 8,
   },
 
   searchInput: {
+    flex: 1,
     backgroundColor: '#fff',
     borderRadius: 14,
     paddingHorizontal: 14,
@@ -562,6 +580,27 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
+  },
+
+  refreshBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: YELLOW,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+
+  refreshIcon: {
+    fontSize: 22,
+    color: '#111',
+    fontWeight: '700',
+    lineHeight: 26,
   },
 
   filterRow: {

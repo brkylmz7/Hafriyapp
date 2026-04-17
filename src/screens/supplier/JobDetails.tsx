@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useAppSelector, useAppDispatch } from '../../hooks';
 import { getJobHauls, deleteJobSite } from '../../services/jobSiteNewService';
-import { createHaul, HaulApi } from '../../services/haulService';
+import { createHaul, updateHaulPayment, HaulApi } from '../../services/haulService';
 import {
   addPendingHaul,
   removePendingHaul,
@@ -19,6 +19,11 @@ const YELLOW = '#FFD500';
 const DARK = '#222';
 
 // ── İnterneti test et (netinfo paketi olmadan)
+const nowTR = (): string => {
+  const trMs = Date.now() + 3 * 60 * 60000;
+  return new Date(trMs).toISOString().replace('Z', '');
+};
+
 const checkOnline = async (): Promise<boolean> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 3000);
@@ -154,6 +159,14 @@ export default function JobDetails() {
   const [manualMaterial, setManualMaterial] = useState('');
   const [manualSaving, setManualSaving] = useState(false);
 
+  // ── Ödeme Onay modal
+  const [paymentModal, setPaymentModal] = useState(false);
+  const [paymentHaul, setPaymentHaul] = useState<HaulApi | null>(null);
+  const [paymentType, setPaymentType] = useState(0); // 0=nakit, 1=yakıt
+  const [paymentCash, setPaymentCash] = useState('');
+  const [paymentFuel, setPaymentFuel] = useState('');
+  const [paymentSaving, setPaymentSaving] = useState(false);
+
   const pendingForThisJob = pendingQueue.filter(h => h.jobSiteId === job?.id);
   const offers = getOffersFromJob(job);
 
@@ -262,9 +275,10 @@ export default function JobDetails() {
       dumpLocation = offer.name; // "loading → unloading"
     }
 
-    const timeNow = new Date().toISOString();
+    const timeNow = nowTR();
     setFormSaving(true);
     const online = await checkOnline();
+    console.log('timeNow', timeNow);
 
     if (online) {
       try {
@@ -352,7 +366,7 @@ export default function JobDetails() {
       paymentType = cash > 0 && fuel > 0 ? 2 : fuel > 0 ? 1 : 0;
     }
 
-    const timeNow = new Date().toISOString();
+    const timeNow = nowTR();
     setManualSaving(true);
     const online = await checkOnline();
 
@@ -400,6 +414,48 @@ export default function JobDetails() {
       setManualSaving(false);
       closeManualModal();
       Alert.alert('Çevrimdışı Kaydedildi', 'İnternet yok. İnternete bağlandığında otomatik gönderilecek.');
+    }
+  };
+
+  // ── Ödeme onay modal aç
+  const openPaymentConfirm = (item: HaulApi) => {
+    setPaymentHaul(item);
+    setPaymentType(item.paymentType === 1 ? 1 : 0);
+    setPaymentCash(item.cashAmount > 0 ? String(item.cashAmount) : '');
+    setPaymentFuel(item.fuelAmount > 0 ? String(item.fuelAmount) : '');
+    setPaymentModal(true);
+  };
+
+  const closePaymentModal = () => {
+    setPaymentModal(false);
+    setPaymentHaul(null);
+    setPaymentCash('');
+    setPaymentFuel('');
+  };
+
+  const handleConfirmPayment = async () => {
+    if (!token || !paymentHaul) return;
+    try {
+      setPaymentSaving(true);
+      await updateHaulPayment(
+        {
+          haulId: paymentHaul.id,
+          isPaid: true,
+          paymentType,
+          cashAmount: paymentType === 0 ? parseFloat(paymentCash.replace(',', '.')) || 0 : 0,
+          fuelAmount: paymentType === 1 ? parseFloat(paymentFuel.replace(',', '.')) || 0 : 0,
+          tonage: paymentHaul.tonage,
+          dumpLocation: paymentHaul.dumpLocation,
+        },
+        token,
+      );
+      closePaymentModal();
+      fetchHauls();
+      Alert.alert('Başarılı', 'Ödeme onaylandı.');
+    } catch (error: any) {
+      Alert.alert('Hata', error?.response?.data?.message || 'Ödeme onaylanırken hata oluştu.');
+    } finally {
+      setPaymentSaving(false);
     }
   };
 
@@ -561,55 +617,60 @@ export default function JobDetails() {
   const renderHaulItem = (item: HaulApi) => {
     const material = getMaterialFromDumpLocation(item.dumpLocation || '');
     return (
-    <View key={item.id} style={[styles.haulCard, item.isPaid ? styles.haulCardPaid : styles.haulCardUnpaid]}>
-      <View style={styles.haulCardTop}>
-        <Text style={styles.haulSerial}>{autoSerial(item)}{item.serialNumber ? `  #${item.serialNumber}` : ''}</Text>
-        {item.isPrintedReceipt && (
-          <View style={styles.printedBadge}><Text style={styles.printedBadgeText}>🖨 Yazdırıldı</Text></View>
-        )}
-        {item.isPaid
-          ? <View style={styles.statusPaid}><Text style={styles.statusPaidText}>✔ Ödendi</Text></View>
-          : <View style={styles.statusPending}><Text style={styles.statusPendingText}>⏳ Bekliyor</Text></View>
-        }
-      </View>
+      <View key={item.id} style={[styles.haulCard, item.isPaid ? styles.haulCardPaid : styles.haulCardUnpaid]}>
+        <View style={styles.haulCardTop}>
+          <Text style={styles.haulSerial}>{autoSerial(item)}{item.serialNumber ? `  #${item.serialNumber}` : ''}</Text>
+          {item.isPrintedReceipt && (
+            <View style={styles.printedBadge}><Text style={styles.printedBadgeText}>🖨 Yazdırıldı</Text></View>
+          )}
+          {item.isPaid
+            ? <View style={styles.statusPaid}><Text style={styles.statusPaidText}>✔ Ödendi</Text></View>
+            : <View style={styles.statusPending}><Text style={styles.statusPendingText}>⏳ Bekliyor</Text></View>
+          }
+        </View>
 
-      <View style={styles.haulCardMid}>
-        <View>
-          <Text style={styles.haulDate}>{formatDate(item.timeOfHaul)}</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Text style={styles.haulPlate}>{item.plateNumber}</Text>
-            {!!material && (
-              <View style={styles.materialBadge}><Text style={styles.materialBadgeText}>{material}</Text></View>
+        <View style={styles.haulCardMid}>
+          <View>
+            <Text style={styles.haulDate}>{formatDate(item.timeOfHaul)}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.haulPlate}>{item.plateNumber}</Text>
+              {!!material && (
+                <View style={styles.materialBadge}><Text style={styles.materialBadgeText}>{material}</Text></View>
+              )}
+            </View>
+          </View>
+          <View style={{ alignItems: 'flex-end', gap: 4 }}>
+            {item.tonage > 0 && (
+              <Text style={styles.haulTonage}>
+                {isKum ? `${item.tonage.toLocaleString('tr-TR')} kg` : `${(item.tonage / 1000).toFixed(2)} t`}
+              </Text>
+            )}
+            {item.cashAmount > 0 && (
+              <View style={styles.cashBadge}><Text style={styles.cashBadgeText}>{item.cashAmount.toLocaleString('tr-TR')} ₺</Text></View>
+            )}
+            {item.fuelAmount > 0 && (
+              <View style={styles.fuelBadge}><Text style={styles.fuelBadgeText}>{item.fuelAmount.toLocaleString('tr-TR')} Lt</Text></View>
             )}
           </View>
         </View>
-        <View style={{ alignItems: 'flex-end', gap: 4 }}>
-          {item.tonage > 0 && (
-            <Text style={styles.haulTonage}>
-              {isKum ? `${item.tonage.toLocaleString('tr-TR')} kg` : `${(item.tonage / 1000).toFixed(2)} t`}
-            </Text>
-          )}
-          {item.cashAmount > 0 && (
-            <View style={styles.cashBadge}><Text style={styles.cashBadgeText}>{item.cashAmount.toLocaleString('tr-TR')} ₺</Text></View>
-          )}
-          {item.fuelAmount > 0 && (
-            <View style={styles.fuelBadge}><Text style={styles.fuelBadgeText}>{item.fuelAmount.toLocaleString('tr-TR')} Lt</Text></View>
-          )}
-        </View>
-      </View>
 
-      <View style={styles.haulCardBot}>
-        <Text style={styles.haulDump} numberOfLines={1}>→ {item.dumpLocation || '-'}</Text>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <TouchableOpacity style={styles.printBtn} onPress={() => triggerPrint(item)}>
-            <Text style={styles.printBtnText}>🖨 Yazdır</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.eyeBtn} onPress={() => { setSelectedHaul(item); setReceiptVisible(true); }}>
-            <Text style={styles.eyeBtnText}>👁 Fiş</Text>
-          </TouchableOpacity>
+        <View style={styles.haulCardBot}>
+          <Text style={styles.haulDump} numberOfLines={1}>→ {item.dumpLocation || '-'}</Text>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {!item.isPaid && (
+              <TouchableOpacity style={styles.approveBtn} onPress={() => openPaymentConfirm(item)}>
+                <Text style={styles.approveBtnText}>✔ Onayla</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.printBtn} onPress={() => triggerPrint(item)}>
+              <Text style={styles.printBtnText}>🖨 Yazdır</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.eyeBtn} onPress={() => { setSelectedHaul(item); setReceiptVisible(true); }}>
+              <Text style={styles.eyeBtnText}>👁 Fiş</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
-    </View>
     );
   };
 
@@ -994,6 +1055,94 @@ export default function JobDetails() {
         </TouchableWithoutFeedback>
       </Modal>
 
+      {/* ═══════════════ ÖDEME ONAY MODAL ═══════════════ */}
+      <Modal visible={paymentModal} transparent animationType="fade">
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.modalOverlay}>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ width: '100%', alignItems: 'center' }}>
+              <View style={styles.paymentCard}>
+                {/* Header */}
+                <View style={styles.paymentHeader}>
+                  <Text style={styles.paymentHeaderText}>💰 Ödeme Onayla</Text>
+                  <TouchableOpacity onPress={closePaymentModal}>
+                    <Text style={styles.closeXText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Haul Bilgisi */}
+                {paymentHaul && (
+                  <View style={styles.paymentInfoBox}>
+                    <Text style={styles.paymentInfoPlate}>{paymentHaul.plateNumber}</Text>
+                    <Text style={styles.paymentInfoDate}>{formatDate(paymentHaul.timeOfHaul)}</Text>
+                    <Text style={styles.paymentInfoSite}>{paymentHaul.dumpLocation || '-'}</Text>
+                  </View>
+                )}
+
+                {/* Ödeme Türü */}
+                <Text style={[styles.fieldLabel, { marginHorizontal: 16 }]}>Ödeme Türü</Text>
+                <View style={styles.payTypeRow}>
+                  <TouchableOpacity
+                    style={[styles.payTypeBtn, paymentType === 0 && styles.payTypeActive]}
+                    onPress={() => setPaymentType(0)}
+                  >
+                    <Text style={[styles.payTypeText, paymentType === 0 && styles.payTypeTextActive]}>💵 Nakit (₺)</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.payTypeBtn, paymentType === 1 && styles.payTypeActive]}
+                    onPress={() => setPaymentType(1)}
+                  >
+                    <Text style={[styles.payTypeText, paymentType === 1 && styles.payTypeTextActive]}>⛽ Yakıt (Lt)</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Tutar */}
+                <View style={{ paddingHorizontal: 16 }}>
+                  {paymentType === 0 ? (
+                    <>
+                      <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Nakit Tutar (₺)</Text>
+                      <TextInput
+                        value={paymentCash}
+                        onChangeText={t => setPaymentCash(t.replace(/[^0-9,]/g, ''))}
+                        style={styles.textInput}
+                        keyboardType="decimal-pad"
+                        placeholder="0.00"
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Yakıt Miktarı (Litre)</Text>
+                      <TextInput
+                        value={paymentFuel}
+                        onChangeText={t => setPaymentFuel(t.replace(/[^0-9,]/g, ''))}
+                        style={styles.textInput}
+                        keyboardType="decimal-pad"
+                        placeholder="0.00"
+                      />
+                    </>
+                  )}
+                </View>
+
+                {/* Butonlar */}
+                <View style={[styles.addCardFooter, { marginTop: 16 }]}>
+                  <TouchableOpacity style={styles.cancelBtn} onPress={closePaymentModal}>
+                    <Text style={styles.cancelBtnText}>İptal</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.approveConfirmBtn, paymentSaving && { opacity: 0.5 }]}
+                    onPress={handleConfirmPayment}
+                    disabled={paymentSaving}
+                  >
+                    <Text style={styles.approveConfirmBtnText}>
+                      {paymentSaving ? 'Kaydediliyor...' : '✔ Ödemeyi Onayla'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </KeyboardAvoidingView>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
       {/* ═══════════════ FİŞ DETAY MODAL ═══════════════ */}
       {selectedHaul && (
         <Modal visible={receiptVisible} transparent animationType="fade" onRequestClose={() => setReceiptVisible(false)}>
@@ -1213,6 +1362,9 @@ const styles = StyleSheet.create({
   haulDump: { fontSize: 12, color: '#666', flex: 1 },
   eyeBtn: { borderWidth: 1.5, borderColor: '#1565C0', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
   eyeBtnText: { color: '#1565C0', fontSize: 12, fontWeight: '700' },
+  approveBtn: { backgroundColor: '#E8F5E9', borderWidth: 1.5, borderColor: '#2E7D32', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
+  approveBtnText: { color: '#2E7D32', fontSize: 12, fontWeight: '700' },
+
   printBtn: { borderWidth: 1.5, borderColor: '#546E7A', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
   printBtnText: { color: '#546E7A', fontSize: 12, fontWeight: '700' },
 
@@ -1292,6 +1444,62 @@ const styles = StyleSheet.create({
   printSubmitBtnText: { color: '#fff', fontWeight: '800', fontSize: 13 },
   manualSaveBtn: { flex: 1, backgroundColor: '#4CAF50', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
   manualSaveBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+
+  // ── Ödeme Onay Modal
+  paymentCard: {
+    width: '92%',
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    overflow: 'hidden',
+    padding: 0,
+  },
+  paymentHeader: {
+    backgroundColor: '#2E7D32',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+  },
+  paymentHeaderText: { fontSize: 17, fontWeight: '800', color: '#fff' },
+  paymentInfoBox: {
+    backgroundColor: '#F1F8E9',
+    margin: 16,
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#C5E1A5',
+  },
+  paymentInfoPlate: { fontSize: 18, fontWeight: '800', color: DARK, marginBottom: 4 },
+  paymentInfoDate: { fontSize: 12, color: '#666', marginBottom: 2 },
+  paymentInfoSite: { fontSize: 13, color: '#444', fontWeight: '600' },
+  payTypeRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  payTypeBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#DDD',
+    alignItems: 'center',
+    backgroundColor: '#FAFAFA',
+  },
+  payTypeActive: { borderColor: '#2E7D32', backgroundColor: '#E8F5E9' },
+  payTypeText: { fontSize: 14, fontWeight: '600', color: '#777' },
+  payTypeTextActive: { color: '#2E7D32', fontWeight: '800' },
+  approveConfirmBtn: {
+    flex: 1,
+    backgroundColor: '#2E7D32',
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  approveConfirmBtnText: { color: '#fff', fontWeight: '800', fontSize: 14 },
 
   // ── Fiş Detay Modal (yeni tasarım)
   receiptCard: {

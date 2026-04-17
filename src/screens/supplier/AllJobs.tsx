@@ -454,15 +454,15 @@ const AllJobs = () => {
 
       {/* TABELA AÇIKLAMASI (aktifse göster) */}
       {item.isActive && !!item.signDescription && (
-        <View style={styles.signDescBox}>
+        <View style={[styles.signDescBox, { borderColor: item.statusColor, backgroundColor: item.statusColor }]}>
           <Text style={styles.signDescText} numberOfLines={4}>{item.signDescription}</Text>
         </View>
       )}
 
       {/* STATUS */}
-      <View style={[styles.statusBar, { backgroundColor: item.statusColor }]}>
+      {/* <View style={[styles.statusBar, { backgroundColor: item.statusColor }]}>
         <Text style={styles.statusText}>{item.status}</Text>
-      </View>
+      </View> */}
     </View>
   );
 
@@ -508,44 +508,56 @@ const AllJobs = () => {
                 style={styles.searchInput}
               />
 
-              {/* CITY DROPDOWN */}
-              <View>
-                <TouchableOpacity
-                  style={styles.citySelect}
-                  onPress={openCityPicker}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.cityText}>
-                    {selectedCity != null
-                      ? CITIES.find(c => c.value === selectedCity)?.label ?? 'İl'
-                      : 'Tüm Türkiye'}
-                  </Text>
-                  <Image
-                    source={require('../../../assets/icons/down-arrow.png')}
-                    style={{ width: 14, height: 14 }}
-                  />
-                </TouchableOpacity>
-
-                {cityOpen && (
-                  <View style={styles.cityDropdown}>
-                    <FlatList
-                      data={CITIES}
-                      keyExtractor={item => item.value.toString()}
-                      style={{ maxHeight: 260 }}
-                      renderItem={({ item }) => (
-                        <TouchableOpacity
-                          style={styles.cityItem}
-                          onPress={() => {
-                            setSelectedCity(item.value);
-                            setCityOpen(false);
-                          }}
-                        >
-                          <Text style={styles.cityItemText}>{item.label}</Text>
-                        </TouchableOpacity>
-                      )}
+              {/* CITY DROPDOWN + REFRESH */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View>
+                  <TouchableOpacity
+                    style={styles.citySelect}
+                    onPress={openCityPicker}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.cityText}>
+                      {selectedCity != null
+                        ? CITIES.find(c => c.value === selectedCity)?.label ?? 'İl'
+                        : 'Tüm Türkiye'}
+                    </Text>
+                    <Image
+                      source={require('../../../assets/icons/down-arrow.png')}
+                      style={{ width: 14, height: 14 }}
                     />
-                  </View>
-                )}
+                  </TouchableOpacity>
+
+                  {cityOpen && (
+                    <View style={styles.cityDropdown}>
+                      <FlatList
+                        data={CITIES}
+                        keyExtractor={item => item.value.toString()}
+                        style={{ maxHeight: 260 }}
+                        renderItem={({ item }) => (
+                          <TouchableOpacity
+                            style={styles.cityItem}
+                            onPress={() => {
+                              setSelectedCity(item.value);
+                              setCityOpen(false);
+                            }}
+                          >
+                            <Text style={styles.cityItemText}>{item.label}</Text>
+                          </TouchableOpacity>
+                        )}
+                      />
+                    </View>
+                  )}
+                </View>
+
+                {/* YENİLE BUTONU */}
+                <TouchableOpacity
+                  style={styles.refreshBtn}
+                  onPress={fetchJobs}
+                  activeOpacity={0.7}
+                  disabled={loading}
+                >
+                  <Text style={[styles.refreshIcon, loading && { opacity: 0.4 }]}>↻</Text>
+                </TouchableOpacity>
               </View>
             </View>
 
@@ -609,13 +621,12 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 16,
     height: 48,
-    width: '60%',
+    flex: 1,
     fontSize: 14,
     shadowOffset: {
       width: 0,
       height: 2,
     },
-    // extra depth
     shadowColor: '#000',
     shadowOpacity: 0.15,
     shadowRadius: 4,
@@ -682,8 +693,8 @@ const styles = StyleSheet.create({
     borderColor: '#FFE082',
   },
   signDescText: {
-    fontSize: 13,
-    color: '#555',
+    fontSize: 14,
+    fontWeight: '500',
     lineHeight: 18,
   },
   moreBtn: {
@@ -774,7 +785,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 12,
     height: 48,
-    width: '60%',
+    width: 120,
     shadowOffset: { width: 1, height: 3 },
     shadowColor: '#000',
     shadowOpacity: 0.15,
@@ -863,6 +874,27 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#C62828',
     fontWeight: '700',
+  },
+
+  refreshBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: YELLOW,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+
+  refreshIcon: {
+    fontSize: 24,
+    color: DARK,
+    fontWeight: '700',
+    lineHeight: 28,
   },
 
 });
