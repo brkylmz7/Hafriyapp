@@ -361,7 +361,7 @@ const AllJobs = () => {
     setLoading(true);
     try {
       const response = await getMarketJobs(token, selectedCity ?? undefined);
-      const mapped = response.map(mapJobFromApi);
+      const mapped = response.map(mapJobFromApi).filter((j: any) => j.isActive);
       setJobs(mapped);
     } catch (e) {
       console.log('Market jobs error', e);
@@ -386,7 +386,7 @@ const AllJobs = () => {
           {/* Bölge: il / ilçe */}
           {(item.provinceName || item.districtName) ? (
             <Text style={styles.locationText}>
-              📍 {item.provinceName}{item.districtName ? ` / ${item.districtName}` : ''}
+              📍{item.provinceName}{item.districtName ? ` / ${item.districtName}` : ''}
             </Text>
           ) : null}
         </View>
@@ -674,8 +674,9 @@ const styles = StyleSheet.create({
     color: DARK,
   },
   site: {
-    fontSize: 15,
+    fontSize: 16,
     color: '#666',
+    fontWeight: '500',
     marginTop: 2,
   },
   locationText: {
@@ -704,7 +705,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   moreText: {
-    fontSize: 10,
+    fontSize: 12,
   },
 
   /* ACTIONS */
@@ -721,7 +722,8 @@ const styles = StyleSheet.create({
     fontSize: 18,
   },
   actionLabel: {
-    fontSize: 11,
+    fontSize: 12,
+    fontWeight: '500',
     color: '#666',
     marginTop: 4,
   },
@@ -734,9 +736,9 @@ const styles = StyleSheet.create({
   },
   th: {
     flex: 1,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#888',
+    color: '#595959ff',
   },
   tableRow: {
     flexDirection: 'row',
@@ -746,6 +748,7 @@ const styles = StyleSheet.create({
   td: {
     flex: 1,
     fontSize: 14,
+    fontWeight: '500',
     color: DARK,
   },
 

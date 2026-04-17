@@ -4,25 +4,32 @@ function resolveLogoUrl(path?: string): any {
   if (!path) return require('../../assets/logokarakalem.png');
   if (path.startsWith('data:image') || path.startsWith('http')) return { uri: path };
   if (path.startsWith('/uploads')) return { uri: `https://api.hafriyapp.com${path}` };
-  // eski base64 (prefix'siz)
   return { uri: `data:image/png;base64,${path}` };
 }
+
+const isOfferVisible = (o: any): boolean => {
+  const vis = o.isVisible ?? o.IsVisible;
+  if (vis === undefined || vis === null) return true;
+  return vis !== false && vis !== 0 && vis !== 'false';
+};
 
 export const mapJobFromApi = (item: any) => {
   // ─── Hafriyat/Döküm: dumps (döküm yeri + nakit + mazot) ──────────────────
   let dumps: { place: string; cash: string; fuel: string }[] = [];
 
   if (item.jobType !== 1) {
-    // 1. ExtraOffersJson: yeni birleşik format (isVisible property'li)
+    let usedNewFormat = false;
+
     if (item.extraOffersJson) {
       try {
         const parsed = JSON.parse(item.extraOffersJson);
         if (Array.isArray(parsed) && parsed.length > 0) {
           const hasIsVisible = 'isVisible' in parsed[0] || 'IsVisible' in parsed[0];
-          // Yeni format: extraOffersJson tüm teklifleri içeriyor
           if (hasIsVisible) {
+            // Yeni format: isVisible alanına göre filtrele — fallback'e düşme
+            usedNewFormat = true;
             dumps = parsed
-              .filter((o: any) => o.isVisible !== false && o.IsVisible !== false)
+              .filter(isOfferVisible)
               .map((o: any) => ({
                 place: o.name || o.Name || '-',
                 cash: o.cash ? `${o.cash}₺` : '-',
@@ -58,8 +65,8 @@ export const mapJobFromApi = (item: any) => {
       }
     }
 
-    // Fallback: extraOffersJson yoksa veya parse başarısız olursa Offer1/Offer2
-    if (dumps.length === 0) {
+    // Fallback: yalnızca yeni format kullanılmadıysa (eski veri veya parse hatası)
+    if (!usedNewFormat && dumps.length === 0) {
       if (item.offer1Name) {
         dumps.push({
           place: item.offer1Name,
@@ -102,13 +109,13 @@ export const mapJobFromApi = (item: any) => {
     id: item.id,
     company: item.companyName,
     site: item.name,
-    jobType: item.jobType, // 0: Hafriyat, 1: Kum/Mıcır
+    jobType: item.jobType,
     loadingStartTime: item.loadingStartTime,
     loadingEndTime: item.loadingEndTime,
     logo: resolveLogoUrl(item.companyLogoPath ?? item.companyLogoBase64),
 
-    dumps,   // Hafriyat
-    routes,  // Kum/Mıcır
+    dumps,
+    routes,
 
     status: item.isActive ? 'Yükleme Devam Ediyor' : 'Pasif',
     statusColor: item.isActive ? '#C8E6C9' : '#FFE0E0',
@@ -116,7 +123,7 @@ export const mapJobFromApi = (item: any) => {
     phone: item.contactPhone,
     locationUrl: item.locationUrl,
     description: item.description,
-    signDescription: item.signDescription,   // Tabela açıklaması
+    signDescription: item.signDescription,
     provinceCode: item.provinceCode,
     provinceName: item.provinceName ?? '',
     districtName: item.districtName ?? '',

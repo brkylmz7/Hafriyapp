@@ -9,7 +9,10 @@ import {
   ActivityIndicator,
   Alert,
   TextInput,
+  Platform,
+  ActionSheetIOS,
 } from 'react-native';
+import RNBlobUtil from 'react-native-blob-util';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -71,6 +74,7 @@ export default function MyJobs() {
   const [jobs, setJobs] = useState<JobUI[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | undefined>(undefined);
   const [search, setSearch] = useState('');
@@ -89,6 +93,7 @@ export default function MyJobs() {
         data.map(async (item: any) => {
           let today = 0, total = 0, paid = 0, unpaid = 0;
           let fuelGiven = '0 lt', cashGiven = '0₺', totalTonage = 0;
+          let paidFuelTotal = 0;
 
           try {
             const hauls = await getJobHauls(token, item.id);
@@ -102,11 +107,11 @@ export default function MyJobs() {
             ).length;
 
             const paidHauls = hauls.filter((h: any) => h.isPaid);
-            const totalFuel = paidHauls.reduce((s: number, h: any) => s + (h.fuelAmount ?? 0), 0);
+            paidFuelTotal = paidHauls.reduce((s: number, h: any) => s + (h.fuelAmount ?? 0), 0);
             const totalCash = paidHauls.reduce((s: number, h: any) => s + (h.cashAmount ?? 0), 0);
             const totalTon = paidHauls.reduce((s: number, h: any) => s + (h.tonage ?? 0), 0) / 1000;
 
-            fuelGiven = `${totalFuel.toFixed(0)} lt`;
+            fuelGiven = `${paidFuelTotal.toFixed(0)} lt`;
             cashGiven = `${totalCash.toFixed(0)}₺`;
             totalTonage = parseFloat(totalTon.toFixed(1));
           } catch {
@@ -120,7 +125,7 @@ export default function MyJobs() {
             total,
             paid,
             unpaid,
-            fuelLeft: `${item.fuelStock ?? 0} lt`,
+            fuelLeft: `${Math.max(0, (item.fuelStock ?? 0) - paidFuelTotal).toFixed(0)} lt`,
             fuelGiven,
             cashGiven,
             totalTonage,
@@ -185,6 +190,81 @@ export default function MyJobs() {
     ]);
   };
 
+  const downloadExcel = async (jobId: string, jobName: string) => {
+    if (!token) return;
+    setDownloading(true);
+    try {
+      const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const filename = `Seferler_${jobName}_${date}.xlsx`;
+      const res = await RNBlobUtil.config({ fileCache: true, appendExt: 'xlsx' })
+        .fetch('GET', `https://api.hafriyapp.com/api/Haul/jobsite/${jobId}/export`, {
+          Authorization: `Bearer ${token}`,
+        });
+      const path = res.path();
+      if (Platform.OS === 'ios') {
+        await RNBlobUtil.ios.openDocument(path);
+      } else {
+        await RNBlobUtil.android.actionViewIntent(
+          path,
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        );
+      }
+    } catch {
+      Alert.alert('Hata', 'Excel dosyası indirilemedi.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const downloadAllExcel = async () => {
+    if (!token) return;
+    setDownloading(true);
+    try {
+      const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const res = await RNBlobUtil.config({ fileCache: true, appendExt: 'xlsx' })
+        .fetch('GET', 'https://api.hafriyapp.com/api/Haul/all-jobsites/export', {
+          Authorization: `Bearer ${token}`,
+        });
+      const path = res.path();
+      if (Platform.OS === 'ios') {
+        await RNBlobUtil.ios.openDocument(path);
+      } else {
+        await RNBlobUtil.android.actionViewIntent(
+          path,
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        );
+      }
+    } catch {
+      Alert.alert('Hata', 'Excel dosyası indirilemedi.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleDownloadPress = () => {
+    if (jobs.length === 0) { Alert.alert('Uyarı', 'İndirilecek iş bulunamadı.'); return; }
+    if (jobs.length === 1) { downloadExcel(jobs[0].id, jobs[0].site); return; }
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: 'Hangi işin seferlerini indirmek istersiniz?',
+          options: ['İptal', 'Tüm İşleri İndir', ...jobs.map(j => j.site)],
+          cancelButtonIndex: 0,
+        },
+        idx => {
+          if (idx === 1) downloadAllExcel();
+          else if (idx > 1) downloadExcel(jobs[idx - 2].id, jobs[idx - 2].site);
+        },
+      );
+    } else {
+      Alert.alert('İş Seç', '', [
+        { text: '⬇ Tüm İşleri İndir', onPress: downloadAllExcel },
+        ...jobs.map(j => ({ text: j.site, onPress: () => downloadExcel(j.id, j.site) })),
+        { text: 'İptal', style: 'cancel' },
+      ]);
+    }
+  };
+
   const handleFinishJob = (jobId: string) => {
     Alert.alert(
       'İşi Bitir',
@@ -225,12 +305,16 @@ export default function MyJobs() {
     const isKum = item.raw.jobType === 1;
 
     return (
-      <View style={styles.card}>
+      <TouchableOpacity
+        style={styles.card}
+        onPress={() => navigation.navigate('JobDetails', { job: item.raw })}
+        activeOpacity={0.85}
+      >
         <View style={{ flex: 1 }}>
           <Text style={styles.site}>{item.site}</Text>
-          <Text style={styles.jobType}>
+          {/* <Text style={styles.jobType}>
             {isKum ? 'Kum & Mıcır' : 'Hafriyat Döküm'}
-          </Text>
+          </Text> */}
 
           <View style={{ marginTop: '2%' }}>
             <Text style={styles.info}>Bugün atılan seferler: <Text style={styles.infoBold}>{item.today}</Text></Text>
@@ -245,8 +329,8 @@ export default function MyJobs() {
           {!isKum && (
             <View style={styles.infoBox}>
               <Text style={styles.infoBoxTitle}>Kaynak Durumu</Text>
-              <Text style={[styles.infoBoxRow, { color: '#E53935' }]}>Nakit: {item.cashGiven}</Text>
-              <Text style={[styles.infoBoxRow, { color: '#E53935' }]}>Yakıt: {item.fuelGiven}</Text>
+              <Text style={[styles.infoBoxRow, { color: '#E53935' }]}>Nakit: {parseFloat(item.cashGiven) !== 0 ? `-${item.cashGiven}` : item.cashGiven}</Text>
+              <Text style={[styles.infoBoxRow, { color: '#E53935' }]}>Yakıt: {parseFloat(item.fuelGiven) !== 0 ? `-${item.fuelGiven}` : item.fuelGiven}</Text>
               <Text style={[styles.infoBoxRow, { color: '#1565C0' }]}>Kalan: {item.fuelLeft}</Text>
             </View>
           )}
@@ -276,14 +360,8 @@ export default function MyJobs() {
             </TouchableOpacity>
           )}
 
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={() => navigation.navigate('JobDetails', { job: item.raw })}
-          >
-            <Text style={styles.actionBtnText}>İşi Aç</Text>
-          </TouchableOpacity>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -319,6 +397,17 @@ export default function MyJobs() {
             disabled={refreshing}
           >
             <Text style={[styles.refreshIcon, refreshing && { opacity: 0.4 }]}>↻</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.downloadBtn}
+            onPress={handleDownloadPress}
+            activeOpacity={0.7}
+            disabled={downloading}
+          >
+            {downloading
+              ? <ActivityIndicator size="small" color="#111" />
+              : <Text style={styles.downloadIcon}>⬇</Text>
+            }
           </TouchableOpacity>
         </View>
 
@@ -601,6 +690,28 @@ const styles = StyleSheet.create({
     color: '#111',
     fontWeight: '700',
     lineHeight: 26,
+  },
+
+  downloadBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: '#E8F5E9',
+    borderWidth: 1,
+    borderColor: '#A5D6A7',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.10,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+
+  downloadIcon: {
+    fontSize: 18,
+    color: '#2E7D32',
+    fontWeight: '700',
   },
 
   filterRow: {

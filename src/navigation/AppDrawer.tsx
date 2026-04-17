@@ -8,18 +8,22 @@ import CustomDrawerContent from './CustomDrawerContent';
 
 const Drawer = createDrawerNavigator();
 
+const NO_SWIPE = {
+  swipeEnabled: false,
+  swipeEdgeWidth: 0,
+  gestureHandlerProps: { enabled: false },
+} as const;
+
 export default function AppNavigator() {
   return (
     <Drawer.Navigator
       drawerContent={props => <CustomDrawerContent {...props} />}
       screenOptions={{
         header: () => <CustomHeader title="HAFRİYAPP" />,
+        ...NO_SWIPE,
 
-        // ✅ AKTİF
         drawerActiveBackgroundColor: '#FFD500',
         drawerActiveTintColor: '#000',
-
-        // ✅ PASİF
         drawerInactiveTintColor: '#444',
 
         drawerItemStyle: {
@@ -33,9 +37,21 @@ export default function AppNavigator() {
           fontWeight: '800',
         },
       }}>
-      <Drawer.Screen name="HomeTabs" component={BottomTabs} options={{ title: 'ANASAYFA' }} />
-      <Drawer.Screen name="Profile" component={ProfileScreen} options={{ title: 'PROFİLİM' }} />
-      <Drawer.Screen name="MyAds" component={MyAds} options={{ title: 'İLANLARIM' }} />
+      <Drawer.Screen
+        name="HomeTabs"
+        component={BottomTabs}
+        options={{ title: 'ANASAYFA', ...NO_SWIPE }}
+      />
+      <Drawer.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{ title: 'PROFİLİM', ...NO_SWIPE }}
+      />
+      <Drawer.Screen
+        name="MyAds"
+        component={MyAds}
+        options={{ title: 'İLANLARIM', ...NO_SWIPE }}
+      />
     </Drawer.Navigator>
   );
 }

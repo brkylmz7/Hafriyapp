@@ -2,12 +2,15 @@ import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator,
   Image, Modal, TextInput, Alert, KeyboardAvoidingView, Platform,
-  TouchableWithoutFeedback, Keyboard, AppState, Share, RefreshControl,
+  TouchableWithoutFeedback, Keyboard, AppState, Share, RefreshControl, ActionSheetIOS,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useAppSelector, useAppDispatch } from '../../hooks';
-import { getJobHauls, deleteJobSite } from '../../services/jobSiteNewService';
+import { getJobHauls, deleteJobSite, updateJobSite } from '../../services/jobSiteNewService';
+import RNBlobUtil from 'react-native-blob-util';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import NewJobModal from '../../components/NewJobModal';
 import { createHaul, updateHaulPayment, HaulApi } from '../../services/haulService';
 import {
   addPendingHaul,
@@ -159,6 +162,33 @@ export default function JobDetails() {
   const [manualMaterial, setManualMaterial] = useState('');
   const [manualSaving, setManualSaving] = useState(false);
 
+  // ── Son plakalar
+  const [recentPlates, setRecentPlates] = useState<string[]>([]);
+
+  const loadRecentPlates = async () => {
+    try {
+      const raw = await AsyncStorage.getItem('recent_plates');
+      if (raw) setRecentPlates(JSON.parse(raw));
+    } catch { }
+  };
+
+  const saveRecentPlate = async (plate: string) => {
+    try {
+      const raw = await AsyncStorage.getItem('recent_plates');
+      const existing: string[] = raw ? JSON.parse(raw) : [];
+      const updated = [plate, ...existing.filter(p => p !== plate)].slice(0, 10);
+      await AsyncStorage.setItem('recent_plates', JSON.stringify(updated));
+      setRecentPlates(updated);
+    } catch { }
+  };
+
+  // ── Ayarlar: Düzenle / Yakıt Ekle / İşi Sil / İndir
+  const [editModal, setEditModal] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [fuelModal, setFuelModal] = useState(false);
+  const [fuelInput, setFuelInput] = useState('');
+  const [fuelSaving, setFuelSaving] = useState(false);
+
   // ── Ödeme Onay modal
   const [paymentModal, setPaymentModal] = useState(false);
   const [paymentHaul, setPaymentHaul] = useState<HaulApi | null>(null);
@@ -263,7 +293,7 @@ export default function JobDetails() {
     let cashAmount = offer.cash;
     let fuelAmount = offer.fuel;
     let paymentType = offer.cash > 0 && offer.fuel > 0 ? 2 : offer.fuel > 0 ? 1 : 0;
-    let dumpLocation = '';
+    let dumpLocation = offer.name; // Hafriyat: teklif adı, Kum/Mıcır: rota adı
 
     if (isKum) {
       tonageKg = parseFloat(formTonage.replace(',', '.')) || 0;
@@ -271,8 +301,7 @@ export default function JobDetails() {
       const cashPerTon = offer.cashPerTon ?? offer.cash;
       cashAmount = parseFloat((cashPerTon * tonageKg / 1000).toFixed(2));
       fuelAmount = 0;
-      paymentType = 0; // nakit
-      dumpLocation = offer.name; // "loading → unloading"
+      paymentType = 0;
     }
 
     const timeNow = nowTR();
@@ -298,6 +327,7 @@ export default function JobDetails() {
           token!
         );
         setFormSaving(false);
+        saveRecentPlate(cleanPlate);
         closeAddModal();
         fetchHauls();
         if (isPrinted) {
@@ -328,6 +358,7 @@ export default function JobDetails() {
         createdAt: timeNow,
       };
       dispatch(addPendingHaul(pending));
+      saveRecentPlate(cleanPlate);
       setFormSaving(false);
       closeAddModal();
       Alert.alert('Çevrimdışı Kaydedildi', 'İnternet yok. İnternete bağlandığında otomatik gönderilecek.');
@@ -512,6 +543,101 @@ export default function JobDetails() {
     return `${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`;
   };
 
+  // ── Ayarlar menüsü
+  const downloadExcel = async () => {
+    if (!token || !job?.id) return;
+    setDownloading(true);
+    try {
+      const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const res = await RNBlobUtil.config({ fileCache: true, appendExt: 'xlsx' })
+        .fetch('GET', `https://api.hafriyapp.com/api/Haul/jobsite/${job.id}/export`, {
+          Authorization: `Bearer ${token}`,
+        });
+      const path = res.path();
+      if (Platform.OS === 'ios') {
+        await RNBlobUtil.ios.openDocument(path);
+      } else {
+        await RNBlobUtil.android.actionViewIntent(
+          path,
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        );
+      }
+    } catch {
+      Alert.alert('Hata', 'Excel dosyası indirilemedi.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleSettingsPress = () => {
+    const options = ['İptal', 'Düzenle', 'Yakıt Ekle', 'İndir', 'İşi Sil'];
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options, cancelButtonIndex: 0, destructiveButtonIndex: 4 },
+        idx => {
+          if (idx === 1) setEditModal(true);
+          if (idx === 2) { setFuelInput(''); setFuelModal(true); }
+          if (idx === 3) downloadExcel();
+          if (idx === 4) handleFinishJob();
+        },
+      );
+    } else {
+      Alert.alert('Ayarlar', '', [
+        { text: 'Düzenle', onPress: () => setEditModal(true) },
+        { text: 'Yakıt Ekle', onPress: () => { setFuelInput(''); setFuelModal(true); } },
+        { text: 'İndir', onPress: downloadExcel },
+        { text: 'İşi Sil', style: 'destructive', onPress: handleFinishJob },
+        { text: 'İptal', style: 'cancel' },
+      ]);
+    }
+  };
+
+  // ── Yakıt Ekle
+  const handleAddFuel = async () => {
+    if (!token || !job?.id) return;
+    const amount = parseInt(fuelInput.replace(/[^0-9]/g, ''), 10);
+    if (!amount || amount <= 0) { Alert.alert('Hata', 'Geçerli bir miktar giriniz.'); return; }
+    setFuelSaving(true);
+    try {
+      const currentStock = job.fuelStock ?? 0;
+      await updateJobSite(token, job.id, {
+        companyId: job.companyId,
+        name: job.name,
+        jobType: job.jobType,
+        provinceCode: job.provinceCode,
+        districtName: job.districtName ?? '',
+        locationUrl: job.locationUrl ?? '',
+        description: job.description ?? '',
+        signDescription: job.signDescription ?? '',
+        contactPhone: job.contactPhone ?? '',
+        fuelStock: currentStock + amount,
+        offer1Name: null,
+        offer1Cash: 0,
+        offer1Fuel: 0,
+        offer2Name: null,
+        offer2Cash: 0,
+        offer2Fuel: 0,
+        extraOffersJson: job.extraOffersJson ?? '[]',
+        hasFuel: job.hasFuel ?? true,
+        fuelLiters: job.fuelLiters ?? 0,
+        hasSand: job.jobType === 1,
+        sandFuelLiters: job.sandFuelLiters ?? 0,
+        hasCash: job.hasCash ?? true,
+        cashAmount: 0,
+        loadingStartTime: job.loadingStartTime ?? '',
+        loadingEndTime: job.loadingEndTime ?? '',
+        isActive: job.isActive,
+      });
+      setFuelModal(false);
+      setFuelInput('');
+      Alert.alert('Başarılı', `${amount} litre yakıt eklendi.`);
+    } catch (err: any) {
+      Alert.alert('Hata', err?.response?.data?.message || 'Yakıt eklenirken hata oluştu.');
+    } finally {
+      setFuelSaving(false);
+    }
+  };
+
   // ── İşi Bitir
   const handleFinishJob = () => {
     Alert.alert(
@@ -547,8 +673,11 @@ export default function JobDetails() {
         <Text style={styles.headerTitle} numberOfLines={1}>{job?.name || 'Şantiye'}</Text>
         <Text style={styles.headerSubtitle}>{job?.provinceName} • {job?.isActive ? 'Aktif' : 'Pasif'}</Text>
       </View>
-      <TouchableOpacity style={styles.finishBtn} onPress={handleFinishJob}>
-        <Text style={styles.finishBtnText}>İşi Bitir</Text>
+      <TouchableOpacity style={styles.settingsBtn} onPress={handleSettingsPress} disabled={downloading}>
+        {downloading
+          ? <ActivityIndicator size="small" color="#444" />
+          : <Text style={styles.settingsBtnText}>⚙ Ayarlar</Text>
+        }
       </TouchableOpacity>
     </View>
   );
@@ -559,10 +688,12 @@ export default function JobDetails() {
     const todayCount = hauls.filter(h => new Date(h.timeOfHaul).toDateString() === todayStr).length
       + pendingForThisJob.filter(h => new Date(h.timeOfHaul).toDateString() === todayStr).length;
     const totalTonKg = hauls.reduce((a, h) => a + (h.tonage || 0), 0);
+    const paidFuel = hauls.filter(h => h.isPaid).reduce((a, h) => a + (h.fuelAmount || 0), 0);
+    const remainingFuel = (job?.fuelStock ?? 0) - paidFuel;
     const totalTonDisplay = isKum
       ? `${(totalTonKg / 1000).toFixed(1)}t`
-      : `${hauls.reduce((a, h) => a + (h.fuelAmount || 0), 0).toFixed(0)}lt`;
-    const totalTonLabel = isKum ? 'Toplam Ton' : 'Yakıt';
+      : `${remainingFuel.toFixed(0)}lt`;
+    const totalTonLabel = isKum ? 'Toplam Ton' : 'Kalan Yakıt';
 
     return (
       <View style={styles.summaryBar}>
@@ -662,9 +793,9 @@ export default function JobDetails() {
                 <Text style={styles.approveBtnText}>✔ Onayla</Text>
               </TouchableOpacity>
             )}
-            <TouchableOpacity style={styles.printBtn} onPress={() => triggerPrint(item)}>
+            {/* <TouchableOpacity style={styles.printBtn} onPress={() => triggerPrint(item)}>
               <Text style={styles.printBtnText}>🖨 Yazdır</Text>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
             <TouchableOpacity style={styles.eyeBtn} onPress={() => { setSelectedHaul(item); setReceiptVisible(true); }}>
               <Text style={styles.eyeBtnText}>👁 Fiş</Text>
             </TouchableOpacity>
@@ -713,7 +844,7 @@ export default function JobDetails() {
               <TouchableOpacity style={styles.manualBtn} onPress={() => setManualModal(true)}>
                 <Text style={styles.manualBtnText}>Manuel Ekle</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.addHaulBtn} onPress={() => setAddModal(true)}>
+              <TouchableOpacity style={styles.addHaulBtn} onPress={() => { loadRecentPlates(); setAddModal(true); }}>
                 <Text style={styles.addHaulBtnText}>＋ Sefer Gir</Text>
               </TouchableOpacity>
             </View>
@@ -767,6 +898,31 @@ export default function JobDetails() {
                       autoCapitalize="characters"
                       maxLength={14}
                     />
+                    {recentPlates.length > 0 && (() => {
+                      const filtered = formPlate.trim()
+                        ? recentPlates.filter(p => p.includes(formPlate.trim().toUpperCase()))
+                        : recentPlates;
+                      if (filtered.length === 0) return null;
+                      return (
+                        <ScrollView
+                          horizontal
+                          showsHorizontalScrollIndicator={false}
+                          style={{ marginTop: 10 }}
+                          contentContainerStyle={styles.recentPlatesRow}
+                          keyboardShouldPersistTaps="handled"
+                        >
+                          {filtered.map(plate => (
+                            <TouchableOpacity
+                              key={plate}
+                              style={styles.recentPlateChip}
+                              onPress={() => setFormPlate(plate)}
+                            >
+                              <Text style={styles.recentPlateText}>{plate}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
+                      );
+                    })()}
 
                     {/* Rota / Teklif Seçiniz */}
                     <Text style={[styles.fieldLabel, { marginTop: 18 }]}>{isKum ? 'Rota Seçiniz' : 'Teklif Seçiniz'}</Text>
@@ -1055,6 +1211,75 @@ export default function JobDetails() {
         </TouchableWithoutFeedback>
       </Modal>
 
+      {/* ═══════════════ DÜZENLE MODAL ═══════════════ */}
+      <Modal visible={editModal} animationType="slide">
+        <NewJobModal
+          initialJob={job}
+          onClose={(refresh) => {
+            setEditModal(false);
+            if (refresh) fetchHauls();
+          }}
+        />
+      </Modal>
+
+      {/* ═══════════════ YAKIT EKLE MODAL ═══════════════ */}
+      <Modal visible={fuelModal} transparent animationType="fade">
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.modalOverlay}>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ width: '100%', alignItems: 'center' }}>
+              <View style={styles.fuelCard}>
+                <View style={styles.fuelHeader}>
+                  <Text style={styles.fuelHeaderText}>⛽ Yakıt Ekle</Text>
+                  <TouchableOpacity onPress={() => setFuelModal(false)}>
+                    <Text style={styles.closeXText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={{ padding: 20 }}>
+                  <View style={styles.fuelInfoBox}>
+                    <Text style={styles.fuelInfoLabel}>Mevcut Yakıt Stoku</Text>
+                    <Text style={styles.fuelInfoValue}>{job?.fuelStock ?? 0} lt</Text>
+                  </View>
+
+                  <Text style={[styles.fieldLabel, { marginTop: 16 }]}>Eklenecek Miktar (Litre) <Text style={styles.req}>*</Text></Text>
+                  <TextInput
+                    value={fuelInput}
+                    onChangeText={t => setFuelInput(t.replace(/[^0-9]/g, ''))}
+                    style={styles.textInput}
+                    keyboardType="number-pad"
+                    placeholder="Örn: 500"
+                    autoFocus
+                  />
+
+                  {!!fuelInput && parseInt(fuelInput) > 0 && (
+                    <View style={styles.fuelCalcBox}>
+                      <Text style={styles.fuelCalcText}>
+                        Yeni Stok: {(job?.fuelStock ?? 0) + parseInt(fuelInput)} lt
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                <View style={[styles.addCardFooter, { marginTop: 0 }]}>
+                  <TouchableOpacity style={styles.cancelBtn} onPress={() => setFuelModal(false)}>
+                    <Text style={styles.cancelBtnText}>İptal</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.fuelSaveBtn, (!fuelInput || fuelSaving) && { opacity: 0.4 }]}
+                    onPress={handleAddFuel}
+                    disabled={!fuelInput || fuelSaving}
+                  >
+                    <Text style={styles.fuelSaveBtnText}>
+                      {fuelSaving ? 'Ekleniyor...' : '⛽ Yakıt Ekle'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </KeyboardAvoidingView>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
       {/* ═══════════════ ÖDEME ONAY MODAL ═══════════════ */}
       <Modal visible={paymentModal} transparent animationType="fade">
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
@@ -1280,16 +1505,16 @@ const styles = StyleSheet.create({
   headerContent: { flex: 1, marginLeft: 10 },
   headerTitle: { fontSize: 18, fontWeight: '800', color: '#333' },
   headerSubtitle: { fontSize: 12, color: '#777' },
-  finishBtn: {
-    backgroundColor: '#FFF0EE',
+  settingsBtn: {
+    backgroundColor: '#F5F5F5',
     borderWidth: 1,
-    borderColor: '#E53935',
+    borderColor: '#CCC',
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 6,
     marginLeft: 8,
   },
-  finishBtnText: { fontSize: 12, color: '#E53935', fontWeight: '700' },
+  settingsBtnText: { fontSize: 12, color: '#444', fontWeight: '700' },
 
   content: { padding: 16 },
 
@@ -1431,6 +1656,26 @@ const styles = StyleSheet.create({
   offerCashText: { color: '#2E7D32', fontWeight: '700', fontSize: 13 },
   offerFuelBadge: { backgroundColor: '#FFF8E1', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
   offerFuelText: { color: '#E65100', fontWeight: '700', fontSize: 13 },
+  recentPlatesRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingRight: 4,
+  },
+  recentPlateChip: {
+    backgroundColor: '#F0F4FF',
+    borderWidth: 1.5,
+    borderColor: '#90CAF9',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  recentPlateText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1565C0',
+    letterSpacing: 0.5,
+  },
+
   radioCircle: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: '#BDBDBD', alignItems: 'center', justifyContent: 'center' },
   radioCircleSelected: { borderColor: '#1976D2' },
   radioDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#1976D2' },
@@ -1500,6 +1745,52 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   approveConfirmBtnText: { color: '#fff', fontWeight: '800', fontSize: 14 },
+
+  // ── Yakıt Ekle Modal
+  fuelCard: {
+    width: '92%',
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
+  fuelHeader: {
+    backgroundColor: '#E65100',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+  },
+  fuelHeaderText: { fontSize: 17, fontWeight: '800', color: '#fff' },
+  fuelInfoBox: {
+    backgroundColor: '#FFF3E0',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#FFB74D',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  fuelInfoLabel: { fontSize: 13, color: '#666', fontWeight: '600' },
+  fuelInfoValue: { fontSize: 20, fontWeight: '800', color: '#E65100' },
+  fuelCalcBox: {
+    marginTop: 10,
+    backgroundColor: '#E8F5E9',
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#A5D6A7',
+  },
+  fuelCalcText: { color: '#2E7D32', fontWeight: '700', fontSize: 14, textAlign: 'center' },
+  fuelSaveBtn: {
+    flex: 1,
+    backgroundColor: '#E65100',
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  fuelSaveBtnText: { color: '#fff', fontWeight: '800', fontSize: 14 },
 
   // ── Fiş Detay Modal (yeni tasarım)
   receiptCard: {

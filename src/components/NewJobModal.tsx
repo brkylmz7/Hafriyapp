@@ -97,6 +97,8 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [fuelStock, setFuelStock] = useState('');
+  const [isActive, setIsActive] = useState(true);
+  const [showHaulsToVehicleOwners, setShowHaulsToVehicleOwners] = useState(true);
 
   /* Picker modal state */
   const [pickerState, setPickerState] = useState<PickerState>({
@@ -134,6 +136,8 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
       setFuelStock(String(initialJob.fuelStock || ''));
       setStartTime(initialJob.loadingStartTime || '');
       setEndTime(initialJob.loadingEndTime || '');
+      setIsActive(initialJob.isActive !== false);
+      setShowHaulsToVehicleOwners(initialJob.showHaulsToVehicleOwners !== false);
 
       const isKum = initialJob.jobType === 1;
       setJobCategory(isKum ? 'KUM_MICIR' : 'HAFRIYAT');
@@ -389,7 +393,8 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
             cashAmount: 0,
             loadingStartTime: startTime,
             loadingEndTime: endTime,
-            isActive: initialJob.isActive,
+            isActive,
+            showHaulsToVehicleOwners,
           };
           await updateJobSite(token, initialJob.id, payload);
           Alert.alert('Güncellendi', 'İş ilanı başarıyla güncellendi.', [
@@ -423,6 +428,8 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
             LoadingStartTime: startTime,
             LoadingEndTime: endTime,
             CashAmount: null,
+            IsActive: isActive,
+            ShowHaulsToVehicleOwners: showHaulsToVehicleOwners,
           };
           await createJobSite(token, createPayload);
           Alert.alert('Başarılı', 'İş ilanı başarıyla oluşturuldu.', [
@@ -698,6 +705,44 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
             />
           </View>
           <Text style={styles.hint}>Şantiyenin çalışma saat aralığı</Text>
+        </Card>
+
+        {/* AYARLAR */}
+        <Card title="Ayarlar">
+          <TouchableOpacity
+            style={styles.toggleRow}
+            onPress={() => setIsActive(v => !v)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.toggleInfo}>
+              <Text style={styles.toggleLabel}>Yükleme Açık</Text>
+              <Text style={styles.toggleHint}>Aktif edildiğinde araçlar yükleme yapabilir</Text>
+            </View>
+            <View style={[styles.togglePill, isActive && styles.togglePillOn]}>
+              <View style={[styles.toggleThumb, isActive && styles.toggleThumbOn]} />
+            </View>
+          </TouchableOpacity>
+
+          <View style={styles.toggleDivider} />
+
+          <TouchableOpacity
+            style={styles.toggleRow}
+            onPress={() => setShowHaulsToVehicleOwners(v => !v)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.toggleInfo}>
+              <Text style={styles.toggleLabel}>Seferleri Araç Sahiplerine Göster</Text>
+              <Text style={styles.toggleHint}>Araç sahipleri sefer bilgilerini görebilir</Text>
+            </View>
+            <View style={[styles.togglePill, showHaulsToVehicleOwners && styles.togglePillOn]}>
+              <View style={[styles.toggleThumb, showHaulsToVehicleOwners && styles.toggleThumbOn]} />
+            </View>
+          </TouchableOpacity>
+          {!showHaulsToVehicleOwners && (
+            <Text style={styles.toggleNote}>
+              Kapatırsanız bundan sonra kesilen fişler araç sahiplerine görünmez
+            </Text>
+          )}
         </Card>
 
         {/* YAKIT STOKU - Sadece Hafriyat/Döküm için */}
@@ -1003,5 +1048,44 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: '#F0F0F0',
     marginHorizontal: 16,
+  },
+
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+  },
+  toggleInfo: { flex: 1, paddingRight: 12 },
+  toggleLabel: { fontSize: 15, fontWeight: '700', color: '#111' },
+  toggleHint: { fontSize: 12, color: '#888', marginTop: 2 },
+  toggleDivider: { height: 1, backgroundColor: '#F0F0F0', marginVertical: 2 },
+
+  togglePill: {
+    width: 48,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#D0D0D0',
+    justifyContent: 'center',
+    padding: 2,
+  },
+  togglePillOn: { backgroundColor: YELLOW },
+  toggleThumb: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+  },
+  toggleThumbOn: { alignSelf: 'flex-end' },
+  toggleNote: {
+    fontSize: 12,
+    color: '#E53935',
+    marginTop: 6,
+    marginHorizontal: 2,
   },
 });

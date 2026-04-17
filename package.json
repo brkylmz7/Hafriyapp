@@ -23,6 +23,7 @@
     "axios": "^1.13.2",
     "react": "19.1.1",
     "react-native": "0.82.1",
+    "react-native-blob-util": "^0.24.7",
     "react-native-confirmation-code-field": "^8.0.1",
     "react-native-gesture-handler": "^2.29.1",
     "react-native-image-picker": "^8.2.1",

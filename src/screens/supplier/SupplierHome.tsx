@@ -10,7 +10,8 @@ const buildLogoUrl = (path?: string | null): string => {
 };
 import { CITIES } from '../../constants/cities';
 import { useAppSelector } from '../../hooks';
-import { getChatGroups, createChatGroup } from '../../services/chatService';
+import { launchImageLibrary } from 'react-native-image-picker';
+import { getChatGroups, createChatGroup, uploadGroupImage } from '../../services/chatService';
 
 export default function SupplierHome() {
   const navigation = useNavigation<any>();
@@ -29,6 +30,7 @@ export default function SupplierHome() {
   const [citySearch, setCitySearch] = useState('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [newGroupImage, setNewGroupImage] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -50,6 +52,18 @@ export default function SupplierHome() {
     } finally {
       if (showLoader) setLoading(false);
     }
+  };
+
+  const pickGroupImage = () => {
+    launchImageLibrary(
+      { mediaType: 'photo', includeBase64: true, quality: 0.7, maxWidth: 800, maxHeight: 800 },
+      (response) => {
+        if (response.didCancel || response.errorCode) return;
+        const asset = response.assets?.[0];
+        if (!asset?.base64) return;
+        setNewGroupImage(`data:${asset.type || 'image/jpeg'};base64,${asset.base64}`);
+      },
+    );
   };
 
   const handleCreateGroup = async () => {
@@ -77,13 +91,22 @@ export default function SupplierHome() {
         allowMemberMessages: true,
       };
 
-      await createChatGroup(token, payload);
+      const result = await createChatGroup(token, payload);
+      const createdId = result?.id || result?.data?.id;
+      if (newGroupImage && createdId) {
+        try {
+          await uploadGroupImage(token, createdId, newGroupImage);
+        } catch (imgErr) {
+          console.warn('Logo yüklenemedi:', imgErr);
+        }
+      }
       Alert.alert('Başarılı', 'Grup oluşturuldu!');
       setCreateModalVisible(false);
       setNewGroupName('');
       setNewGroupDesc('');
+      setNewGroupImage(null);
       setSelectedProvinces([]);
-      fetchGroups(); // Listeyi güncelle
+      fetchGroups();
     } catch (error) {
       Alert.alert('Hata', 'Grup oluşturulurken bir hata oluştu.');
       console.error(error);
@@ -270,12 +293,31 @@ export default function SupplierHome() {
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Grup Oluştur</Text>
-            <TouchableOpacity onPress={() => setCreateModalVisible(false)}>
+            <TouchableOpacity onPress={() => { setCreateModalVisible(false); setNewGroupImage(null); }}>
               <Text style={{ fontSize: 20, fontWeight: 'bold' }}>✕</Text>
             </TouchableOpacity>
           </View>
 
           <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
+            <Text style={styles.label}>Grup Logosu</Text>
+            <View style={styles.logoSection}>
+              <View style={styles.logoCircle}>
+                {newGroupImage ? (
+                  <Image source={{ uri: newGroupImage }} style={styles.logoImg} />
+                ) : (
+                  <Text style={{ fontSize: 36 }}>🏢</Text>
+                )}
+              </View>
+              <TouchableOpacity style={styles.pickImageBtn} onPress={pickGroupImage}>
+                <Text style={styles.pickImageText}>⊙ Resim Seç</Text>
+              </TouchableOpacity>
+              {newGroupImage && (
+                <TouchableOpacity style={styles.removeImageBtn} onPress={() => setNewGroupImage(null)}>
+                  <Text style={styles.removeImageText}>✕ Kaldır</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
             <Text style={styles.label}>Grup Adı *</Text>
             <TextInput
               style={styles.input}
@@ -372,7 +414,7 @@ export default function SupplierHome() {
               {creating ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>✓ Grubu Oluştur</Text>}
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.cancelBtn} onPress={() => setCreateModalVisible(false)} disabled={creating}>
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => { setCreateModalVisible(false); setNewGroupImage(null); }} disabled={creating}>
               <Text style={styles.cancelBtnText}>← Vazgeç</Text>
             </TouchableOpacity>
 
@@ -685,6 +727,51 @@ const styles = StyleSheet.create({
     color: '#555',
     fontWeight: '600',
     fontSize: 16,
-  }
+  },
+  logoSection: {
+    alignItems: 'center',
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  logoCircle: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: '#F0F0F0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: '#ddd',
+  },
+  logoImg: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+  },
+  pickImageBtn: {
+    paddingHorizontal: 22,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: '#FFD500',
+  },
+  pickImageText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  removeImageBtn: {
+    marginTop: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#eee',
+  },
+  removeImageText: {
+    fontSize: 13,
+    color: '#C62828',
+    fontWeight: '600',
+  },
 });
 

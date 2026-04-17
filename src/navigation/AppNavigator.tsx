@@ -19,6 +19,9 @@ export default function AppNavigator() {
       drawerContent={props => <CustomDrawerContent {...props} />}
       screenOptions={{
         header: () => <CustomHeader title="HAFRİYAPP" />,
+        swipeEnabled: false,
+        swipeEdgeWidth: 0,
+        gestureHandlerProps: { enabled: false },
       }}>
       {/* 🔑 Tabs burada olmalı */}
       <Drawer.Screen name="HomeTabs" component={BottomTabs} options={{ title: 'Anasayfa' }} />

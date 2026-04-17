@@ -1395,9 +1395,9 @@ export default function SupplierVehicles() {
                     <TouchableOpacity
                       style={[
                         styles.saveBigBtn,
-                        !(newPlate) && { opacity: 0.5 },
+                        (!newPlate || newDriverPhone.replace(/\D/g, '').length !== 11) && { opacity: 0.5 },
                       ]}
-                      disabled={!(newPlate) || saving}
+                      disabled={!newPlate || newDriverPhone.replace(/\D/g, '').length !== 11 || saving}
                       onPress={handleCreateVehicle}
                     >
                       <Text style={styles.saveBigText}>✔ Aracı Kaydet</Text>
