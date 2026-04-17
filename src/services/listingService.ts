@@ -79,6 +79,7 @@ export type CreateListingParams = {
   provinceCode: number;
   districtName?: string;
   price?: number;
+  images?: string[];
 };
 
 export type UpdateListingParams = {
@@ -89,6 +90,7 @@ export type UpdateListingParams = {
   districtName?: string;
   price?: number;
   isActive?: boolean;
+  images?: string[];
 };
 
 // GET /api/Listing — sayfalanmış, filtreli

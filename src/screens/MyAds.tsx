@@ -2,9 +2,10 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Modal,
   TextInput, ScrollView, KeyboardAvoidingView, Platform, Alert,
-  ActivityIndicator, RefreshControl, Image, Linking, Dimensions,
+  ActivityIndicator, RefreshControl, Image, Linking, Dimensions, Share,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { launchImageLibrary } from 'react-native-image-picker';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppSelector } from '../hooks';
 import {
   getListings, getMyListings, getListingById, createListing, updateListing, deleteListing,
@@ -13,7 +14,7 @@ import {
 } from '../services/listingService';
 import { DISTRICTS } from '../constants/districts';
 
-const { width: SW } = Dimensions.get('window');
+const { width: SW, height: SH } = Dimensions.get('window');
 const CARD_W = (SW - 48) / 2;
 
 const CATEGORIES = [
@@ -40,7 +41,49 @@ const formatPrice = (price?: number): string => {
   return `${price.toLocaleString('tr-TR')} ₺`;
 };
 
+// ─── Input formatters (görsel, backend'e ham değer gider)
+const fmtPhone = (raw: string): string => {
+  const d = raw.replace(/\D/g, '').slice(0, 11);
+  if (d.length <= 4) return d;
+  if (d.length <= 7) return `${d.slice(0, 4)} ${d.slice(4)}`;
+  if (d.length <= 9) return `${d.slice(0, 4)} ${d.slice(4, 7)} ${d.slice(7)}`;
+  return `${d.slice(0, 4)} ${d.slice(4, 7)} ${d.slice(7, 9)} ${d.slice(9)}`;
+};
+const parsePhone = (text: string): string => text.replace(/\D/g, '').slice(0, 11);
+
+const fmtPriceInput = (raw: string): string => {
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) return '';
+  const n = parseInt(digits, 10);
+  return isNaN(n) ? '' : n.toLocaleString('tr-TR');
+};
+const parsePriceInput = (text: string): string => text.replace(/\D/g, '');
+
+const IMAGE_BASE = 'https://api.hafriyapp.com';
+const buildImageUrl = (path?: string | null): string => {
+  if (!path) return '';
+  if (path.startsWith('http')) return path;
+  return `${IMAGE_BASE}${path.startsWith('/') ? '' : '/'}${path}`;
+};
+
+const urlToBase64 = async (url: string): Promise<string> => {
+  try {
+    const res = await fetch(url);
+    const buf = await res.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    const mime = res.headers.get('content-type') || 'image/jpeg';
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 8192) {
+      binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + 8192, bytes.length)));
+    }
+    return `data:${mime};base64,${btoa(binary)}`;
+  } catch {
+    return '';
+  }
+};
+
 export default function MyAds() {
+  const insets = useSafeAreaInsets();
   const token = useAppSelector(s => s.auth.token);
   const currentUserId = useAppSelector(s => s.auth.user?.id ?? '');
 
@@ -69,6 +112,7 @@ export default function MyAds() {
   const [detailModal, setDetailModal] = useState(false);
   const [detailListing, setDetailListing] = useState<Listing | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailPhotoIdx, setDetailPhotoIdx] = useState(0);
 
   // Create form
   const [createModal, setCreateModal] = useState(false);
@@ -76,9 +120,11 @@ export default function MyAds() {
   const [formTitle, setFormTitle] = useState('');
   const [formDesc, setFormDesc] = useState('');
   const [formPhone, setFormPhone] = useState('');
+  const [formDisplayName, setFormDisplayName] = useState('');
   const [formProvince, setFormProvince] = useState<number | null>(null);
   const [formDistrict, setFormDistrict] = useState('');
   const [formPrice, setFormPrice] = useState('');
+  const [formImages, setFormImages] = useState<string[]>([]);
   const [formProvincePicker, setFormProvincePicker] = useState(false);
   const [formProvinceSearch, setFormProvinceSearch] = useState('');
   const [formDistrictPicker, setFormDistrictPicker] = useState(false);
@@ -99,6 +145,8 @@ export default function MyAds() {
   const [editProvinceSearch, setEditProvinceSearch] = useState('');
   const [editDistrictPicker, setEditDistrictPicker] = useState(false);
   const [editDistrictSearch, setEditDistrictSearch] = useState('');
+  const [editNewImages, setEditNewImages] = useState<string[]>([]);
+  const [editRemainingImages, setEditRemainingImages] = useState<import('../services/listingService').ListingImage[]>([]);
 
   /* ─── Fetch ─── */
   const fetchListings = useCallback(async (reset = false) => {
@@ -115,6 +163,9 @@ export default function MyAds() {
         pageSize: 20,
       });
       const items = result.items ?? [];
+      if (items.length > 0) {
+        console.log('[MyAds] İlk ilan thumbnailUrl:', items[0].thumbnailUrl, '| images:', items[0].images?.length ?? 0);
+      }
       setListings(prev => reset ? items : [...prev, ...items]);
       hasMoreRef.current = nextPage < (result.totalPages ?? 1);
       pageRef.current = nextPage;
@@ -131,7 +182,11 @@ export default function MyAds() {
     try {
       setLoading(true);
       const data = await getMyListings();
-      setMyListings((data ?? []).filter(l => l.listingType === selectedType));
+      const filtered = (data ?? []).filter(l => l.listingType === selectedType);
+      if (filtered.length > 0) {
+        console.log('[MyAds] İlanlarım ilk thumbnailUrl:', filtered[0].thumbnailUrl, '| images:', filtered[0].images?.length ?? 0);
+      }
+      setMyListings(filtered);
     } catch {
       Alert.alert('Hata', 'İlanlarınız yüklenemedi.');
     } finally {
@@ -178,8 +233,24 @@ export default function MyAds() {
   /* ─── Create ─── */
   const openCreate = () => {
     setFormTitle(''); setFormDesc(''); setFormPhone('');
+    setFormDisplayName('');
     setFormProvince(null); setFormDistrict(''); setFormPrice('');
+    setFormImages([]);
     setCreateModal(true);
+  };
+
+  const pickImages = () => {
+    launchImageLibrary(
+      { mediaType: 'photo', includeBase64: true, selectionLimit: 10, quality: 0.8 },
+      response => {
+        if (response.assets) {
+          const picked = response.assets
+            .filter(a => a.base64 && a.type)
+            .map(a => `data:${a.type};base64,${a.base64}`);
+          setFormImages(prev => [...prev, ...picked].slice(0, 10));
+        }
+      },
+    );
   };
 
   const handleCreate = async () => {
@@ -194,7 +265,8 @@ export default function MyAds() {
       contactPhone: formPhone.trim(),
       provinceCode: formProvince,
       districtName: formDistrict.trim() || undefined,
-      price: selectedType !== 2 && formPrice ? parseFloat(formPrice.replace(',', '.')) || undefined : undefined,
+      price: selectedType !== 2 && formPrice ? parseInt(formPrice, 10) || undefined : undefined,
+      images: formImages.length > 0 ? formImages : undefined,
     };
     try {
       setCreateSaving(true);
@@ -217,25 +289,64 @@ export default function MyAds() {
     setEditDistrict(item.districtName ?? '');
     setEditPrice(item.price ? String(item.price) : '');
     setEditIsActive(item.isActive);
+    setEditNewImages([]);
+    setEditRemainingImages(item.images ?? []);
     setDetailModal(false);
     setEditModal(true);
+  };
+
+  const pickEditImages = () => {
+    const totalExisting = editRemainingImages.length + editNewImages.length;
+    const remaining = 5 - totalExisting;
+    if (remaining <= 0) {
+      Alert.alert('Limit', 'En fazla 5 fotoğraf ekleyebilirsiniz.');
+      return;
+    }
+    launchImageLibrary(
+      { mediaType: 'photo', includeBase64: true, selectionLimit: remaining, quality: 0.8 },
+      response => {
+        if (response.assets) {
+          const picked = response.assets
+            .filter(a => a.base64 && a.type)
+            .map(a => `data:${a.type};base64,${a.base64}`);
+          setEditNewImages(prev => [...prev, ...picked].slice(0, remaining));
+        }
+      },
+    );
   };
 
   const handleEdit = async () => {
     if (!editListing) return;
     if (!editTitle.trim()) { Alert.alert('Eksik', 'İlan başlığı zorunludur.'); return; }
     if (!editPhone.trim()) { Alert.alert('Eksik', 'İletişim telefonu zorunludur.'); return; }
-    const params: UpdateListingParams = {
-      title: editTitle.trim(),
-      description: editDesc.trim() || undefined,
-      contactPhone: editPhone.trim(),
-      provinceCode: editProvince ?? editListing.provinceCode,
-      districtName: editDistrict.trim() || undefined,
-      price: editListing.listingType !== 2 && editPrice ? parseFloat(editPrice.replace(',', '.')) || undefined : undefined,
-      isActive: editIsActive,
-    };
+
     try {
       setEditSaving(true);
+
+      // Fotoğraf değiştiyse mevcut URL'leri base64'e çevir
+      const imagesChanged =
+        editNewImages.length > 0 ||
+        editRemainingImages.length !== (editListing.images?.length ?? 0);
+
+      let imagesToSend: string[] | undefined;
+      if (imagesChanged) {
+        const existingBase64 = await Promise.all(
+          editRemainingImages.map(img => urlToBase64(buildImageUrl(img.imagePath))),
+        );
+        imagesToSend = [...existingBase64.filter(Boolean), ...editNewImages];
+      }
+
+      const params: UpdateListingParams = {
+        title: editTitle.trim(),
+        description: editDesc.trim() || undefined,
+        contactPhone: editPhone.trim(),
+        provinceCode: editProvince ?? editListing.provinceCode,
+        districtName: editDistrict.trim() || undefined,
+        price: editListing.listingType !== 2 && editPrice ? parseInt(editPrice, 10) || undefined : undefined,
+        isActive: editIsActive,
+        images: imagesToSend,
+      };
+
       await updateListing(editListing.id, params);
       setEditModal(false);
       Alert.alert('Başarılı', 'İlan güncellendi.');
@@ -336,6 +447,153 @@ export default function MyAds() {
     );
   };
 
+  /* ─── Create form (web tasarımı) ─── */
+  const renderCreateForm = () => {
+    const type = selectedType ?? 0;
+    const titlePlaceholder =
+      type === 0 ? 'Örn: Kepçe Kiralık — Günlük' :
+      type === 1 ? 'Örn: 2018 Ford Cargo Satılık' :
+      'Örn: Deneyimli Damperci Şoför';
+    const descPlaceholder =
+      type === 0 ? 'Araç türü, çalışma saatleri, fiyat bilgisi...' :
+      type === 1 ? 'Model, km, motor, hasar durumu...' :
+      'Deneyim, ehliyet türü, çalışma tercihi...';
+
+    return (
+      <>
+        {/* İlan Başlığı */}
+        <View style={cf.section}>
+          <Text style={cf.label}>İLAN BAŞLIĞI</Text>
+          <TextInput
+            style={cf.input}
+            value={formTitle}
+            onChangeText={setFormTitle}
+            placeholder={titlePlaceholder}
+            placeholderTextColor="#bbb"
+          />
+        </View>
+
+        {/* Ad Soyad + Telefon */}
+        <View style={cf.row}>
+          <View style={cf.halfSection}>
+            <Text style={cf.label}>AD SOYAD</Text>
+            <TextInput
+              style={cf.input}
+              value={formDisplayName}
+              onChangeText={setFormDisplayName}
+              placeholder="Adınız soyadınız"
+              placeholderTextColor="#bbb"
+            />
+          </View>
+          <View style={cf.halfSection}>
+            <Text style={cf.label}>TELEFON</Text>
+            <TextInput
+              style={cf.input}
+              value={fmtPhone(formPhone)}
+              onChangeText={t => setFormPhone(parsePhone(t))}
+              placeholder="05xx xxx xx xx"
+              placeholderTextColor="#bbb"
+              keyboardType="phone-pad"
+            />
+          </View>
+        </View>
+
+        {/* Şehir */}
+        <View style={cf.section}>
+          <Text style={cf.label}>ŞEHİR</Text>
+          <TouchableOpacity
+            style={cf.select}
+            onPress={() => setFormProvincePicker(true)}
+          >
+            <Text style={[cf.selectText, !formProvince && cf.placeholderText]}>
+              {formProvince ? getProvinceName(formProvince) : 'Şehir seçiniz...'}
+            </Text>
+            <Text style={cf.arrow}>▾</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* İlçe */}
+        <View style={cf.section}>
+          <Text style={cf.label}>İLÇE (OPSİYONEL)</Text>
+          <TouchableOpacity
+            style={cf.select}
+            onPress={() => {
+              if (!formProvince) { Alert.alert('Uyarı', 'Lütfen önce şehir seçiniz.'); return; }
+              setFormDistrictPicker(true);
+            }}
+          >
+            <Text style={[cf.selectText, !formDistrict && cf.placeholderText]}>
+              {formDistrict || 'İlçe adı'}
+            </Text>
+            <Text style={cf.arrow}>▾</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Açıklama */}
+        <View style={cf.section}>
+          <Text style={cf.label}>AÇIKLAMA</Text>
+          <TextInput
+            style={[cf.input, cf.textarea]}
+            value={formDesc}
+            onChangeText={setFormDesc}
+            placeholder={descPlaceholder}
+            placeholderTextColor="#bbb"
+            multiline
+            numberOfLines={4}
+            textAlignVertical="top"
+          />
+        </View>
+
+        {/* Fiyat */}
+        {type !== 2 && (
+          <View style={cf.section}>
+            <Text style={cf.label}>FİYAT (₺)</Text>
+            <TextInput
+              style={cf.input}
+              value={fmtPriceInput(formPrice)}
+              onChangeText={t => setFormPrice(parsePriceInput(t))}
+              placeholder="Fiyat girin (opsiyonel)"
+              placeholderTextColor="#bbb"
+              keyboardType="number-pad"
+            />
+          </View>
+        )}
+
+        {/* Fotoğraf */}
+        <View style={cf.section}>
+          <Text style={cf.label}>FOTOĞRAF</Text>
+          <TouchableOpacity style={cf.photoBox} onPress={pickImages} activeOpacity={0.75}>
+            <Text style={cf.photoIcon}>📷</Text>
+            <Text style={cf.photoTitle}>Fotoğraf ekle</Text>
+            <Text style={cf.photoSub}>JPG, PNG, WEBP</Text>
+          </TouchableOpacity>
+          {formImages.length > 0 && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={{ marginTop: 10 }}
+              keyboardShouldPersistTaps="handled"
+            >
+              {formImages.map((img, i) => (
+                <View key={i} style={cf.thumbWrapper}>
+                  <Image source={{ uri: img }} style={cf.thumb} />
+                  <TouchableOpacity
+                    style={cf.thumbRemove}
+                    onPress={() => setFormImages(prev => prev.filter((_, idx) => idx !== i))}
+                  >
+                    <Text style={cf.thumbRemoveText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+
+        <View style={{ height: 8 }} />
+      </>
+    );
+  };
+
   /* ─── Form fields ─── */
   const renderFormFields = (mode: 'create' | 'edit') => {
     const type = mode === 'create' ? (selectedType ?? 0) : (editListing?.listingType ?? 0);
@@ -360,7 +618,7 @@ export default function MyAds() {
         <TextInput style={[styles.formInput, styles.formTextArea]} value={desc} onChangeText={setDesc} placeholder="Açıklama..." placeholderTextColor="#aaa" multiline numberOfLines={3} textAlignVertical="top" />
 
         <Text style={styles.formLabel}>İletişim Tel *</Text>
-        <TextInput style={styles.formInput} value={phone} onChangeText={setPhone} placeholder="05xx xxx xx xx" placeholderTextColor="#aaa" keyboardType="phone-pad" />
+        <TextInput style={styles.formInput} value={fmtPhone(phone)} onChangeText={t => setPhone(parsePhone(t))} placeholder="05xx xxx xx xx" placeholderTextColor="#aaa" keyboardType="phone-pad" />
 
         <Text style={styles.formLabel}>İl *</Text>
         <TouchableOpacity style={styles.formSelect} onPress={openProv}>
@@ -385,13 +643,78 @@ export default function MyAds() {
         {type !== 2 && (
           <>
             <Text style={styles.formLabel}>Fiyat (₺)</Text>
-            <TextInput style={styles.formInput} value={price} onChangeText={setPrice} placeholder="Fiyat giriniz" placeholderTextColor="#aaa" keyboardType="decimal-pad" />
+            <TextInput style={styles.formInput} value={fmtPriceInput(price)} onChangeText={t => setPrice(parsePriceInput(t))} placeholder="Fiyat giriniz" placeholderTextColor="#aaa" keyboardType="number-pad" />
           </>
         )}
 
         {mode === 'edit' && (
           <>
-            <Text style={styles.formLabel}>Durum</Text>
+            {/* Fotoğraflar */}
+            {(() => {
+              const totalCount = editRemainingImages.length + editNewImages.length;
+              return (
+                <>
+                  <View style={ef.photoHeader}>
+                    <Text style={styles.formLabel}>FOTOĞRAFLAR</Text>
+                    <Text style={ef.photoCount}>{totalCount} / 5</Text>
+                  </View>
+
+                  {/* Mevcut + yeni fotoğraflar grid */}
+                  {(editRemainingImages.length > 0 || editNewImages.length > 0) && (
+                    <View style={ef.thumbGrid}>
+                      {/* Mevcut fotoğraflar — silinebilir */}
+                      {editRemainingImages.map((img, i) => (
+                        <View key={img.id ?? `e${i}`} style={ef.thumbWrap}>
+                          <Image
+                            source={{ uri: buildImageUrl(img.imagePath) }}
+                            style={ef.thumb}
+                          />
+                          <TouchableOpacity
+                            style={ef.thumbRemove}
+                            onPress={() =>
+                              setEditRemainingImages(prev => prev.filter((_, idx) => idx !== i))
+                            }
+                          >
+                            <Text style={ef.thumbRemoveText}>✕</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+
+                      {/* Yeni eklenen fotoğraflar — silinebilir */}
+                      {editNewImages.map((uri, i) => (
+                        <View key={`n${i}`} style={ef.thumbWrap}>
+                          <Image source={{ uri }} style={ef.thumb} />
+                          <View style={ef.thumbNewBadge}><Text style={ef.thumbNewBadgeText}>YENİ</Text></View>
+                          <TouchableOpacity
+                            style={ef.thumbRemove}
+                            onPress={() =>
+                              setEditNewImages(prev => prev.filter((_, idx) => idx !== i))
+                            }
+                          >
+                            <Text style={ef.thumbRemoveText}>✕</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  {/* Ekleme butonu — max 5'e ulaşılmadıysa göster */}
+                  {totalCount < 5 && (
+                    <TouchableOpacity style={ef.uploadBox} onPress={pickEditImages} activeOpacity={0.75}>
+                      <Text style={ef.uploadIcon}>📷</Text>
+                      <Text style={ef.uploadText}>Fotoğraf ekle ({5 - totalCount} kaldı)</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {totalCount >= 5 && (
+                    <Text style={ef.limitText}>Maksimum 5 fotoğrafa ulaşıldı.</Text>
+                  )}
+                </>
+              );
+            })()}
+
+            {/* Durum */}
+            <Text style={[styles.formLabel, { marginTop: 16 }]}>Durum</Text>
             <View style={styles.toggleRow}>
               <TouchableOpacity style={[styles.toggleBtn, editIsActive && styles.toggleBtnActive]} onPress={() => setEditIsActive(true)}>
                 <Text style={[styles.toggleBtnText, editIsActive && styles.toggleBtnTextActive]}>Aktif</Text>
@@ -438,10 +761,14 @@ export default function MyAds() {
       );
     }
 
+    const cardImgUri =
+      buildImageUrl(item.thumbnailUrl) ||
+      (item.images && item.images.length > 0 ? buildImageUrl(item.images[0].imagePath) : '');
+
     return (
       <TouchableOpacity style={styles.cardWrap} onPress={() => openDetail(item)} activeOpacity={0.85}>
-        {item.thumbnailUrl
-          ? <Image source={{ uri: item.thumbnailUrl }} style={styles.cardImage} />
+        {cardImgUri
+          ? <Image source={{ uri: cardImgUri }} style={styles.cardImage} />
           : <View style={styles.cardImagePlaceholder}><Text style={styles.cardImageIcon}>{item.listingType === 0 ? '🚛' : '🏬'}</Text></View>
         }
         <View style={styles.cardBody}>
@@ -449,14 +776,14 @@ export default function MyAds() {
           {locText ? <Text style={styles.cardLoc} numberOfLines={1}>📍 {locText}</Text> : null}
           {item.userName ? <Text style={styles.cardOwner}>{item.userName}</Text> : null}
           <View style={styles.cardFooter}>
-            {item.listingType === 1 && item.price
+            {item.price
               ? <Text style={styles.cardPrice}>{formatPrice(item.price)}</Text>
               : <View />
             }
             <View style={styles.cardActions}>
               {isOwner && !item.isActive && <View style={styles.passiveBadge}><Text style={styles.passiveBadgeText}>Pasif</Text></View>}
               {!isOwner && (
-                <TouchableOpacity style={styles.callBtn} onPress={() => Linking.openURL(`tel:${item.contactPhone}`)}>
+                <TouchableOpacity style={styles.callBtn} onPress={e => { e.stopPropagation?.(); Linking.openURL(`tel:${item.contactPhone}`); }}>
                   <Text style={styles.callBtnText}>📞 Ara</Text>
                 </TouchableOpacity>
               )}
@@ -580,21 +907,35 @@ export default function MyAds() {
         />
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
           <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setCreateModal(false)} />
-          <View style={styles.formSheet}>
-            <View style={styles.formSheetHandle} />
-            <View style={styles.formSheetHeader}>
-              <View>
-                <Text style={styles.formSheetTitle}>İlan Ver</Text>
-                <Text style={styles.formSheetSub}>{cat?.label}</Text>
-              </View>
-              <TouchableOpacity onPress={() => setCreateModal(false)}><Text style={styles.formSheetClose}>✕</Text></TouchableOpacity>
+          <View style={cf.sheet}>
+            {/* Başlık */}
+            <View style={cf.sheetHeader}>
+              <Text style={cf.sheetTitle}>Yeni İlan</Text>
+              <TouchableOpacity style={cf.closeBtn} onPress={() => setCreateModal(false)}>
+                <Text style={cf.closeBtnText}>✕</Text>
+              </TouchableOpacity>
             </View>
-            <ScrollView style={styles.formScroll} keyboardShouldPersistTaps="handled">
-              {renderFormFields('create')}
+            <ScrollView
+              style={cf.scroll}
+              contentContainerStyle={cf.scrollContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {renderCreateForm()}
             </ScrollView>
-            <TouchableOpacity style={[styles.formSaveBtn, createSaving && { opacity: 0.6 }]} onPress={handleCreate} disabled={createSaving}>
-              {createSaving ? <ActivityIndicator color="#000" /> : <Text style={styles.formSaveBtnText}>Yayınla</Text>}
-            </TouchableOpacity>
+            <View style={cf.footer}>
+              <TouchableOpacity
+                style={[cf.publishBtn, createSaving && { opacity: 0.6 }]}
+                onPress={handleCreate}
+                disabled={createSaving}
+                activeOpacity={0.85}
+              >
+                {createSaving
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={cf.publishBtnText}>İlanı Yayınla</Text>
+                }
+              </TouchableOpacity>
+            </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -632,80 +973,490 @@ export default function MyAds() {
 
       {/* Detail modal */}
       {detailListing && (
-        <Modal visible={detailModal} transparent animationType="slide" onRequestClose={() => setDetailModal(false)}>
-          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setDetailModal(false)} />
-          <View style={styles.detailSheet}>
-            <View style={styles.detailHandle} />
-            {detailLoading
-              ? <ActivityIndicator size="large" color="#000" style={{ marginVertical: 40 }} />
-              : (
-                <ScrollView showsVerticalScrollIndicator={false}>
-                  {detailListing.thumbnailUrl
-                    ? <Image source={{ uri: detailListing.thumbnailUrl }} style={styles.detailImage} />
-                    : detailListing.listingType !== 2
-                      ? <View style={styles.detailImagePlaceholder}><Text style={{ fontSize: 48 }}>{detailListing.listingType === 0 ? '🚛' : '🏬'}</Text></View>
-                      : null
-                  }
-                  <View style={styles.detailContent}>
-                    <View style={styles.detailBadgeRow}>
-                      <View style={[styles.typeBadge, { backgroundColor: CATEGORIES.find(c => c.type === detailListing.listingType)?.iconBg ?? '#eee' }]}>
-                        <Text style={styles.typeBadgeText}>{CATEGORIES.find(c => c.type === detailListing.listingType)?.label}</Text>
-                      </View>
-                      {!detailListing.isActive && <View style={styles.passiveBadgeLg}><Text style={styles.passiveBadgeLgText}>Pasif</Text></View>}
-                    </View>
+        <Modal visible={detailModal} animationType="slide" onRequestClose={() => setDetailModal(false)}>
+          <SafeAreaView style={ds.container} edges={['bottom']}>
+            {/* Header */}
+            <View style={[ds.header, { paddingTop: insets.top + 10 }]}>
+              <TouchableOpacity style={ds.headerClose} onPress={() => setDetailModal(false)}>
+                <Text style={ds.headerCloseText}>✕</Text>
+              </TouchableOpacity>
+              <Text style={ds.headerTitle}>İlan Detayı</Text>
+              <View style={{ width: 36 }} />
+            </View>
 
-                    <Text style={styles.detailTitle}>{detailListing.title}</Text>
-
-                    {detailListing.listingType !== 2 && detailListing.price
-                      ? <Text style={styles.detailPrice}>{formatPrice(detailListing.price)}</Text>
-                      : null
+            {detailLoading ? (
+              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                <ActivityIndicator size="large" color="#F5A623" />
+              </View>
+            ) : (
+              <>
+                <ScrollView
+                  style={{ flex: 1 }}
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={{ paddingBottom: detailListing.userId === currentUserId ? 140 : 90 }}
+                >
+                  {/* Fotoğraf karusel */}
+                  {(() => {
+                    const imgs: string[] =
+                      detailListing.images && detailListing.images.length > 0
+                        ? detailListing.images.map(i => buildImageUrl(i.imagePath)).filter(Boolean)
+                        : buildImageUrl(detailListing.thumbnailUrl)
+                        ? [buildImageUrl(detailListing.thumbnailUrl)]
+                        : [];
+                    if (imgs.length > 0) {
+                      return (
+                        <View style={ds.photoWrap}>
+                          <ScrollView
+                            horizontal pagingEnabled
+                            showsHorizontalScrollIndicator={false}
+                            onScroll={e => setDetailPhotoIdx(Math.round(e.nativeEvent.contentOffset.x / SW))}
+                            scrollEventThrottle={16}
+                          >
+                            {imgs.map((uri, i) => (
+                              <Image key={i} source={{ uri }} style={[ds.photo, { width: SW }]} resizeMode="cover" />
+                            ))}
+                          </ScrollView>
+                          {imgs.length > 1 && (
+                            <View style={ds.dots}>
+                              {imgs.map((_, i) => (
+                                <View key={i} style={[ds.dot, detailPhotoIdx === i && ds.dotActive]} />
+                              ))}
+                            </View>
+                          )}
+                        </View>
+                      );
                     }
+                    if (detailListing.listingType !== 2) {
+                      return (
+                        <View style={ds.photoPlaceholder}>
+                          <Text style={{ fontSize: 64 }}>{detailListing.listingType === 0 ? '🚛' : '🏬'}</Text>
+                        </View>
+                      );
+                    }
+                    return null;
+                  })()}
 
-                    {(detailListing.provinceCode || detailListing.districtName) && (
-                      <Text style={styles.detailLoc}>
-                        📍 {[getProvinceName(detailListing.provinceCode), detailListing.districtName].filter(Boolean).join(', ')}
+                  <View style={ds.content}>
+                    {/* Konum */}
+                    {(detailListing.provinceCode > 0 || detailListing.districtName) && (
+                      <Text style={ds.location}>
+                        📍 {getProvinceName(detailListing.provinceCode)}
+                        {detailListing.districtName ? ` (${detailListing.districtName})` : ''}
                       </Text>
                     )}
 
-                    {detailListing.description
-                      ? <Text style={styles.detailDesc}>{detailListing.description}</Text>
-                      : null
-                    }
+                    {/* Başlık */}
+                    <Text style={ds.title}>{detailListing.title}</Text>
 
-                    <View style={styles.detailOwnerBox}>
-                      <Text style={styles.detailOwnerName}>{detailListing.userName ?? 'İlan sahibi'}</Text>
-                      <Text style={styles.detailOwnerTime}>{timeDisplay(detailListing.createdDate)}</Text>
-                    </View>
-
-                    {detailListing.userId !== currentUserId && (
-                      <TouchableOpacity style={styles.callBtnLg} onPress={() => Linking.openURL(`tel:${detailListing.contactPhone}`)}>
-                        <Text style={styles.callBtnLgText}>📞 Ara</Text>
-                      </TouchableOpacity>
-                    )}
-
-                    {detailListing.userId === currentUserId && (
-                      <View style={styles.ownerActions}>
-                        <TouchableOpacity style={styles.ownerEditBtn} onPress={() => openEdit(detailListing)}>
-                          <Text style={styles.ownerEditBtnText}>✏️ Düzenle</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.ownerToggleBtn} onPress={() => handleToggleActive(detailListing)}>
-                          <Text style={styles.ownerToggleBtnText}>{detailListing.isActive ? '🔴 Pasife Al' : '🟢 Aktife Al'}</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.ownerDeleteBtn} onPress={() => handleDelete(detailListing.id)}>
-                          <Text style={styles.ownerDeleteBtnText}>🗑 Sil</Text>
-                        </TouchableOpacity>
+                    {/* Pasif badge */}
+                    {!detailListing.isActive && (
+                      <View style={ds.passiveBadge}>
+                        <Text style={ds.passiveBadgeText}>Yayından kaldırılmış</Text>
                       </View>
                     )}
+
+                    {/* Fiyat */}
+                    {detailListing.listingType !== 2 && detailListing.price ? (
+                      <Text style={ds.price}>{formatPrice(detailListing.price)}</Text>
+                    ) : null}
+
+                    {/* İlan Sahibi */}
+                    <View style={ds.ownerCard}>
+                      <View>
+                        <Text style={ds.ownerLabel}>İLAN SAHİBİ</Text>
+                        <Text style={ds.ownerName}>{detailListing.userName ?? 'İlan sahibi'}</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={ds.araSmall}
+                        onPress={() => Linking.openURL(`tel:${detailListing.contactPhone}`)}
+                      >
+                        <Text style={ds.araSmallText}>📞  Ara</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Açıklama */}
+                    {detailListing.description ? (
+                      <>
+                        <Text style={ds.sectionLabel}>AÇIKLAMA</Text>
+                        <Text style={ds.descText}>{detailListing.description}</Text>
+                      </>
+                    ) : null}
+
+                    {/* Meta */}
+                    <View style={ds.metaRow}>
+                      <Text style={ds.metaItem}>🕐 {timeDisplay(detailListing.createdDate)}</Text>
+                      <Text style={ds.metaItem}>📞 {detailListing.contactPhone}</Text>
+                    </View>
                   </View>
                 </ScrollView>
-              )
-            }
-          </View>
+
+                {/* Sabit alt bar */}
+                <View style={[ds.bottomBar, detailListing.userId === currentUserId && { paddingBottom: 4 }]}>
+                  <View style={ds.bottomRow}>
+                    <TouchableOpacity
+                      style={ds.btnAra}
+                      onPress={() => Linking.openURL(`tel:${detailListing.contactPhone}`)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={ds.btnAraText}>📞  Ara</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={ds.btnPaylas}
+                      onPress={() =>
+                        Share.share({
+                          message: `${detailListing.title}\n${getProvinceName(detailListing.provinceCode)}${detailListing.districtName ? ` (${detailListing.districtName})` : ''}\n${detailListing.price ? formatPrice(detailListing.price) : ''}\nİletişim: ${detailListing.contactPhone}`,
+                          title: detailListing.title,
+                        })
+                      }
+                      activeOpacity={0.85}
+                    >
+                      <Text style={ds.btnPaylasText}>↗  Paylaş</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Sahip butonları */}
+                  {detailListing.userId === currentUserId && (
+                    <View style={ds.ownerRow}>
+                      <TouchableOpacity style={ds.ownerBtnEdit} onPress={() => openEdit(detailListing)}>
+                        <Text style={ds.ownerBtnEditText}>✏️ Düzenle</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={ds.ownerBtnToggle} onPress={() => handleToggleActive(detailListing)}>
+                        <Text style={ds.ownerBtnToggleText}>
+                          {detailListing.isActive ? '🔴 Yayından Kaldır' : '🟢 Yayınla'}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={ds.ownerBtnDel} onPress={() => handleDelete(detailListing.id)}>
+                        <Text style={ds.ownerBtnDelText}>🗑 Sil</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              </>
+            )}
+          </SafeAreaView>
         </Modal>
       )}
     </SafeAreaView>
   );
 }
+
+/* ─── Edit photo styles ─── */
+const ef = StyleSheet.create({
+  photoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 16,
+    marginBottom: 10,
+  },
+  photoCount: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#F5A623',
+  },
+  thumbGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 12,
+  },
+  thumbWrap: {
+    position: 'relative',
+  },
+  thumb: {
+    width: 80,
+    height: 80,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#e8e8e8',
+  },
+  thumbRemove: {
+    position: 'absolute',
+    top: -7,
+    right: -7,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#e74c3c',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  thumbRemoveText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  thumbNewBadge: {
+    position: 'absolute',
+    bottom: 4,
+    left: 4,
+    backgroundColor: '#F5A623',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  thumbNewBadgeText: {
+    color: '#fff',
+    fontSize: 8,
+    fontWeight: '800',
+  },
+  uploadBox: {
+    borderWidth: 2,
+    borderColor: '#ddd',
+    borderStyle: 'dashed',
+    borderRadius: 12,
+    paddingVertical: 20,
+    alignItems: 'center',
+    backgroundColor: '#fafafa',
+    marginBottom: 4,
+  },
+  uploadIcon: {
+    fontSize: 26,
+    marginBottom: 4,
+  },
+  uploadText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#555',
+  },
+  limitText: {
+    fontSize: 12,
+    color: '#E65100',
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+});
+
+/* ─── Detail styles ─── */
+const ds = StyleSheet.create({
+  container:        { flex: 1, backgroundColor: '#fff' },
+  header:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
+  headerTitle:      { fontSize: 16, fontWeight: '700', color: '#111' },
+  headerClose:      { width: 36, height: 36, borderRadius: 18, borderWidth: 1.5, borderColor: '#e0e0e0', alignItems: 'center', justifyContent: 'center' },
+  headerCloseText:  { fontSize: 14, color: '#757575', fontWeight: '600' },
+
+  photoWrap:        { backgroundColor: '#111' },
+  photo:            { height: 260 },
+  photoPlaceholder: { height: 200, backgroundColor: '#F5F5F5', alignItems: 'center', justifyContent: 'center' },
+  dots:             { flexDirection: 'row', justifyContent: 'center', gap: 6, paddingVertical: 8 },
+  dot:              { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.5)' },
+  dotActive:        { backgroundColor: '#F5A623', width: 18 },
+
+  content:          { padding: 20 },
+  location:         { fontSize: 13, color: '#555', marginBottom: 6, fontWeight: '500' },
+  title:            { fontSize: 22, fontWeight: '900', color: '#111', marginBottom: 6, lineHeight: 28 },
+  price:            { fontSize: 26, fontWeight: '900', color: '#111', marginBottom: 14 },
+  passiveBadge:     { alignSelf: 'flex-start', backgroundColor: '#FFF3E0', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginBottom: 10 },
+  passiveBadgeText: { fontSize: 12, color: '#E65100', fontWeight: '700' },
+
+  ownerCard:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#F8F8F8', borderRadius: 14, padding: 14, marginBottom: 18 },
+  ownerLabel:       { fontSize: 10, fontWeight: '800', color: '#888', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 },
+  ownerName:        { fontSize: 16, fontWeight: '700', color: '#111' },
+  araSmall:         { backgroundColor: '#2E7D32', paddingHorizontal: 18, paddingVertical: 10, borderRadius: 22, flexDirection: 'row', alignItems: 'center' },
+  araSmallText:     { color: '#fff', fontWeight: '700', fontSize: 14 },
+
+  sectionLabel:     { fontSize: 10, fontWeight: '800', color: '#888', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 },
+  descText:         { fontSize: 15, color: '#333', lineHeight: 23, marginBottom: 18 },
+
+  metaRow:          { flexDirection: 'row', gap: 16, flexWrap: 'wrap', marginTop: 4 },
+  metaItem:         { fontSize: 13, color: '#888', fontWeight: '500' },
+
+  bottomBar:        { backgroundColor: '#fff', paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, borderTopWidth: 1, borderTopColor: '#f0f0f0' },
+  bottomRow:        { flexDirection: 'row', gap: 10, marginBottom: 0 },
+  btnAra:           { flex: 1, backgroundColor: '#2E7D32', paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
+  btnAraText:       { color: '#fff', fontSize: 15, fontWeight: '800' },
+  btnPaylas:        { flex: 1, backgroundColor: '#F5F5F5', paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
+  btnPaylasText:    { color: '#333', fontSize: 15, fontWeight: '700' },
+
+  ownerRow:         { flexDirection: 'row', gap: 8, marginTop: 8 },
+  ownerBtnEdit:     { flex: 1, backgroundColor: '#F5F5F5', paddingVertical: 11, borderRadius: 10, alignItems: 'center' },
+  ownerBtnEditText: { fontSize: 13, fontWeight: '700', color: '#333' },
+  ownerBtnToggle:   { flex: 1, backgroundColor: '#FFF8E1', paddingVertical: 11, borderRadius: 10, alignItems: 'center' },
+  ownerBtnToggleText: { fontSize: 13, fontWeight: '700', color: '#E65100' },
+  ownerBtnDel:      { flex: 1, backgroundColor: '#FFF0F0', paddingVertical: 11, borderRadius: 10, alignItems: 'center' },
+  ownerBtnDelText:  { fontSize: 13, fontWeight: '700', color: '#D32F2F' },
+});
+
+/* ─── Create form styles (web design) ─── */
+const cf = StyleSheet.create({
+  sheet: {
+    height: SH * 0.88,
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  sheetTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#212121',
+  },
+  closeBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1.5,
+    borderColor: '#e0e0e0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeBtnText: {
+    fontSize: 14,
+    color: '#757575',
+    fontWeight: '600',
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  section: {
+    marginBottom: 14,
+  },
+  row: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 14,
+  },
+  halfSection: {
+    flex: 1,
+  },
+  label: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#757575',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 6,
+  },
+  input: {
+    borderWidth: 1.5,
+    borderColor: '#e8e8e8',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#212121',
+    backgroundColor: '#fafafa',
+  },
+  textarea: {
+    minHeight: 100,
+    paddingTop: 12,
+    textAlignVertical: 'top',
+  },
+  select: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#e8e8e8',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    backgroundColor: '#fafafa',
+  },
+  selectText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#212121',
+  },
+  placeholderText: {
+    color: '#bbb',
+    fontWeight: '500',
+  },
+  arrow: {
+    fontSize: 14,
+    color: '#757575',
+    marginLeft: 6,
+  },
+  photoBox: {
+    borderWidth: 2,
+    borderColor: '#ddd',
+    borderStyle: 'dashed',
+    borderRadius: 14,
+    paddingVertical: 28,
+    alignItems: 'center',
+    backgroundColor: '#fafafa',
+  },
+  photoIcon: {
+    fontSize: 30,
+    marginBottom: 6,
+    color: '#bbb',
+  },
+  photoTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#212121',
+    marginBottom: 2,
+  },
+  photoSub: {
+    fontSize: 11,
+    color: '#aaa',
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  thumbWrapper: {
+    position: 'relative',
+    marginRight: 8,
+  },
+  thumb: {
+    width: 72,
+    height: 72,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#eee',
+  },
+  thumbRemove: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#e74c3c',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  thumbRemoveText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  footer: {
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+    backgroundColor: '#fff',
+  },
+  publishBtn: {
+    backgroundColor: '#F5A623',
+    paddingVertical: 16,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  publishBtnText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#fff',
+  },
+});
 
 const styles = StyleSheet.create({
   // ── Landing

@@ -6,12 +6,13 @@ export type HaulApi = {
   jobSiteId: string;
   jobSiteName: string;
   companyName?: string;
+  companyLogoPath?: string;
+  contactPhone?: string;
   plateNumber: string;
   serialNumber?: string;
   note?: string;
   driverName?: string;
   driverPhone?: string;
-  contactPhone?: string;
   timeOfHaul: string;
   dumpLocation: string;
   tonage: number;
@@ -21,6 +22,12 @@ export type HaulApi = {
   isPrintedReceipt: boolean;
   paymentType: number; // 0=Nakit, 1=Yakıt, 2=İkisi
   qrCodeBase64?: string;
+  offer1Name?: string;
+  offer1Cash?: number;
+  offer1Fuel?: number;
+  offer2Name?: string;
+  offer2Cash?: number;
+  offer2Fuel?: number;
   createdDate: string;
 };
 
@@ -29,7 +36,20 @@ export const getHauls = async (token: string): Promise<HaulApi[]> => {
   const res = await api.get('/Haul/my', {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
   });
-  return res.data;
+  return Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+};
+
+// Tarih aralığına göre filtreli seferleri getir
+export const getHaulsFiltered = async (
+  token: string,
+  startDate: string,
+  endDate: string,
+): Promise<HaulApi[]> => {
+  const res = await api.get('/Haul/my/filtered', {
+    params: { startDate, endDate },
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+  });
+  return Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
 };
 
 // Araca özel seferleri getir

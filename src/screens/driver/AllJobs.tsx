@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, Image, TouchableOpacity, Platform, Alert, ActionSheetIOS, Modal, ScrollView, Linking } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TextInput, Image, TouchableOpacity, Platform, Alert, ActionSheetIOS, ScrollView, Modal, Linking, Share } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,31 +14,235 @@ const LIGHT_YELLOW = '#FFF2B3';
 const GRAY = '#F4F4F4';
 const DARK = '#222';
 
-const ActionItem = ({ icon, label, onPress }: { icon: any; label: string; onPress?: () => void }) => (
-  <TouchableOpacity style={styles.actionItem} activeOpacity={0.7} onPress={onPress}>
+const DEFAULT_LOGO = require('../../../assets/logokarakalem.png');
+
+const LogoImage = ({ source, style }: { source: any; style: any }) => {
+  const [errored, setErrored] = React.useState(false);
+  const src = errored ? DEFAULT_LOGO : source;
+  return (
+    <Image
+      source={src}
+      style={style}
+      onError={() => setErrored(true)}
+    />
+  );
+};
+
+const ActionItem = ({ icon, label, onPress }: { icon: any; label: string; onPress?: () => void; }) => (
+  <TouchableOpacity style={styles.actionItem} onPress={onPress} activeOpacity={0.7}>
     <Image style={{ width: 20, height: 20 }} source={icon} />
     <Text style={styles.actionLabel}>{label}</Text>
   </TouchableOpacity>
 );
+
+const JobDetailModal = ({
+  visible,
+  job,
+  onClose,
+}: {
+  visible: boolean;
+  job: any;
+  onClose: () => void;
+}) => {
+  if (!job) return null;
+
+  const phones: string[] = job.phone
+    ? job.phone.split(/[,;]/).map((p: string) => p.trim()).filter(Boolean)
+    : [];
+
+  const handleCallPress = () => {
+    if (phones.length === 0) return;
+    if (phones.length === 1) {
+      Linking.openURL(`tel:${phones[0]}`);
+      return;
+    }
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { title: 'Numara Seç', options: ['İptal', ...phones], cancelButtonIndex: 0 },
+        i => { if (i > 0) Linking.openURL(`tel:${phones[i - 1]}`); },
+      );
+    } else {
+      Alert.alert(
+        'Numara Seç', '',
+        phones.map(p => ({ text: p, onPress: () => Linking.openURL(`tel:${p}`) })),
+        { cancelable: true },
+      );
+    }
+  };
+
+  const provinceLabel =
+    job.provinceName || CITIES.find(c => c.value === job.provinceCode)?.label || '-';
+  const locationLabel = job.districtName
+    ? `${provinceLabel} / ${job.districtName}`
+    : provinceLabel;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View style={modalStyles.overlay}>
+        <View style={modalStyles.container}>
+          {/* HEADER */}
+          <View style={modalStyles.header}>
+            <Text style={modalStyles.headerTitle}>İş Detayları</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Text style={modalStyles.close}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* CONTENT — web ile aynı sırada */}
+          <ScrollView style={modalStyles.contentScroll} contentContainerStyle={modalStyles.content}>
+
+            {/* 1. Firma / Şantiye */}
+            <Text style={modalStyles.label}>FİRMA / ŞANTİYE</Text>
+            <Text style={modalStyles.value}>
+              {job.company ? `${job.company} / ` : ''}{job.site}
+            </Text>
+
+            {/* 2. Bölge + Saatler */}
+            <View style={modalStyles.row}>
+              <View style={{ flex: 1 }}>
+                <Text style={modalStyles.label}>BÖLGE</Text>
+                <Text style={modalStyles.value}>{locationLabel}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={modalStyles.label}>SAATLER</Text>
+                <Text style={modalStyles.value}>
+                  {job.loadingStartTime || '--'} - {job.loadingEndTime || '--'}
+                </Text>
+              </View>
+            </View>
+
+            {/* 3. Rotalar (Kum/Mıcır) */}
+            {job.jobType === 1 && job.routes?.length > 0 && (
+              <>
+                <Text style={modalStyles.label}>ROTALAR</Text>
+                <View style={modalStyles.offersBox}>
+                  {job.routes.map((r: any, i: number) => (
+                    <View key={i} style={[modalStyles.routeRow, i === job.routes.length - 1 && { borderBottomWidth: 0 }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={modalStyles.routePath}>
+                          {r.loading}  →  {r.unloading}
+                        </Text>
+                        {r.material !== '-' && (
+                          <Text style={modalStyles.routeMaterial}>{r.material}</Text>
+                        )}
+                      </View>
+                      <Text style={modalStyles.routePrice}>{r.cash}</Text>
+                    </View>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {/* 3. Teklifler (Hafriyat) */}
+            {job.jobType !== 1 && job.dumps?.length > 0 && (
+              <>
+                <Text style={modalStyles.label}>TEKLİFLER</Text>
+                <View style={modalStyles.offersBox}>
+                  <View style={modalStyles.offersTableHeader}>
+                    <Text style={[modalStyles.offersThLeft]}>DÖKÜM BÖLGESİ</Text>
+                    <Text style={modalStyles.offersTh}>NAKİT</Text>
+                    <Text style={modalStyles.offersTh}>MAZOT</Text>
+                  </View>
+                  {job.dumps.map((d: any, i: number) => (
+                    <View key={i} style={modalStyles.offersTdRow}>
+                      <Text style={[modalStyles.offersTdLeft]}>{d.place}</Text>
+                      <Text style={[modalStyles.offersTd, { color: '#2E7D32' }]}>{d.cash}</Text>
+                      <Text style={[modalStyles.offersTd, { color: '#1565C0' }]}>{d.fuel}</Text>
+                    </View>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {/* 4. Tabela Açıklaması */}
+            {!!job.signDescription && (
+              <>
+                <Text style={modalStyles.label}>TABELA AÇIKLAMASI</Text>
+                <Text style={modalStyles.value}>{job.signDescription}</Text>
+              </>
+            )}
+
+            {/* 5. Açıklama */}
+            {!!job.description && (
+              <>
+                <Text style={modalStyles.label}>AÇIKLAMA</Text>
+                <View style={modalStyles.descBox}>
+                  <Text style={modalStyles.descText}>{job.description}</Text>
+                </View>
+              </>
+            )}
+
+            {/* 6. İletişim */}
+            {phones.length > 0 && (
+              <>
+                <Text style={[modalStyles.label, { marginTop: 8 }]}>İLETİŞİM</Text>
+                <View style={modalStyles.phoneList}>
+                  {phones.map((p, i) => (
+                    <TouchableOpacity
+                      key={i}
+                      style={modalStyles.phonePill}
+                      onPress={() => Linking.openURL(`tel:${p}`)}
+                    >
+                      <Text style={modalStyles.phonePillText}>📞 {p}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            )}
+
+          </ScrollView>
+
+          {/* FOOTER: Kapat | Konum | Şimdi Ara */}
+          <View style={modalStyles.footer}>
+            <TouchableOpacity style={modalStyles.closeBtn} onPress={onClose}>
+              <Text style={modalStyles.closeBtnText}>Kapat</Text>
+            </TouchableOpacity>
+
+            {!!job.locationUrl && (
+              <TouchableOpacity
+                style={modalStyles.locationBtn}
+                onPress={() => Linking.openURL(job.locationUrl)}
+              >
+                <Text style={modalStyles.locationBtnText}>📍 Konum</Text>
+              </TouchableOpacity>
+            )}
+
+            {phones.length > 0 && (
+              <TouchableOpacity style={modalStyles.callBtn} onPress={handleCallPress}>
+                <Text style={modalStyles.callText}>📞 Şimdi Ara</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+
 
 const AllJobs = () => {
   const [search, setSearch] = useState('');
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const bottomPadding = tabBarHeight + insets.bottom;
-  const [selectedCity, setSelectedCity] = useState<number>(340);
+  const [selectedCity, setSelectedCity] = useState<number | null>(null); // null = Tüm Türkiye
   const [cityOpen, setCityOpen] = useState(false);
   const [selectedDistricts, setSelectedDistricts] = useState<string[]>([]);
   const [jobs, setJobs] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [detailVisible, setDetailVisible] = useState(false);
+  const [selectedJob, setSelectedJob] = useState<any>(null);
   const token = useAppSelector(state => state.auth.token);
 
+  // İl değişince ilçe seçimlerini sıfırla
   useEffect(() => {
     setSelectedDistricts([]);
   }, [selectedCity]);
 
+  // Seçili ile ait ilçeler
   const availableDistricts = useMemo(
-    () => DISTRICTS[selectedCity] ?? [],
+    () => (selectedCity != null ? DISTRICTS[selectedCity] ?? [] : []),
     [selectedCity],
   );
 
@@ -48,6 +252,7 @@ const AllJobs = () => {
     );
   };
 
+  /** 🔍 Firma + Şantiye + İlçe Araması */
   const filteredJobs = useMemo(() => {
     const q = search.trim().toLowerCase();
     return jobs.filter(item => {
@@ -67,61 +272,76 @@ const AllJobs = () => {
   }, [selectedCity]);
 
   const openCityPicker = () => {
-    const options = ['İptal', ...CITIES.map(c => c.label)];
+    const allOption = 'Tüm Türkiye';
+    const options = ['İptal', allOption, ...CITIES.map(c => c.label)];
 
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options,
-          cancelButtonIndex: 0,
-        },
+        { options, cancelButtonIndex: 0 },
         buttonIndex => {
           if (buttonIndex === 0) return;
-
-          const city = CITIES[buttonIndex - 1];
-          setSelectedCity(city.value);
+          if (buttonIndex === 1) { setSelectedCity(null); return; }
+          setSelectedCity(CITIES[buttonIndex - 2].value);
         },
       );
     } else {
       Alert.alert(
         'İl Seç',
         undefined,
-        CITIES.map(city => ({
-          text: city.label,
-          onPress: () => setSelectedCity(city.value),
+        [
+          { text: allOption, onPress: () => setSelectedCity(null) },
+          ...CITIES.map(city => ({
+            text: city.label,
+            onPress: () => setSelectedCity(city.value),
+          })),
+        ],
+        { cancelable: true },
+      );
+    }
+  };
+  const handleCallPress1 = (phone?: string) => {
+    if (!phone) return;
+    const phones = phone
+      .split(',')
+      .map(p => p.trim())
+      .filter(Boolean);
+
+    if (phones.length === 0) return;
+
+    if (phones.length === 1) {
+      Linking.openURL(`tel:${phones[0]}`);
+      return;
+    }
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: 'Numara Seç',
+          options: ['İptal', ...phones],
+          cancelButtonIndex: 0,
+        },
+        index => {
+          if (index > 0) {
+            Linking.openURL(`tel:${phones[index - 1]}`);
+          }
+        },
+      );
+    } else {
+      Alert.alert(
+        'Numara Seç',
+        '',
+        phones.map(p => ({
+          text: p,
+          onPress: () => Linking.openURL(`tel:${p}`),
         })),
         { cancelable: true },
       );
     }
   };
-  const fetchJobs = async () => {
-    if (!token) return;
 
-    setLoading(true);
-    try {
-      const response = await getMarketJobs(token, selectedCity);
-      const mapped = response.map(mapJobFromApi);
-      console.log('response', response)
-      console.log('mapped', mapped)
-      setJobs(mapped);
-    } catch (e) {
-      console.log('Market jobs error', e);
-    } finally {
-      setLoading(false);
-    }
-  };
-  /* DETAILS MODAL */
-  const [detailsModalVisible, setDetailsModalVisible] = useState(false);
-  const [selectedJob, setSelectedJob] = useState<any>(null);
-
-  const handleOpenDetails = (job: any) => {
-    setSelectedJob(job);
-    setDetailsModalVisible(true);
-  };
-
-  const handleCloseDetails = () => {
-    setDetailsModalVisible(false);
-    setSelectedJob(null);
+  const handleSharePress = (item: any) => {
+    const text = `${item.company ? item.company + ' - ' : ''}${item.site}`;
+    Share.share({ message: text });
   };
 
   const handleLocationPress = (url?: string) => {
@@ -135,21 +355,46 @@ const AllJobs = () => {
     });
   };
 
+  const fetchJobs = async () => {
+    if (!token) return;
+
+    setLoading(true);
+    try {
+      const response = await getMarketJobs(token, selectedCity ?? undefined);
+      const mapped = response.map(mapJobFromApi);
+      setJobs(mapped);
+    } catch (e) {
+      console.log('Market jobs error', e);
+    } finally {
+      setLoading(false);
+    }
+  };
   const renderItem = ({ item }: any) => (
     <View style={styles.card}>
       {/* HEADER */}
       <View style={styles.cardHeader}>
-        <Image source={item.logo} style={styles.logo} />
+        <LogoImage source={item.logo} style={styles.logo} />
 
         <View style={styles.titleArea}>
-          <Text style={styles.company}>{item.company}</Text>
+          <View style={{ flexDirection: 'column' }}>
+            {/* <View style={{ backgroundColor: '#F7B500', borderRadius: 99, paddingHorizontal: 5, paddingVertical: 1, width: '55%', justifyContent: 'center', alignItems: 'center' }}>
+              <Text style={styles.jopType}>{item.jobType === 1 ? 'Kum & Mıcır' : 'Hafriyat Döküm'}</Text>
+            </View> */}
+            <Text style={styles.company}>{item.company}</Text>
+          </View>
           <Text style={styles.site}>{item.site}</Text>
-          <Text style={styles.jobType}>
-            {item.jobType === 1 ? 'Kum & Mıcır' : 'Hafriyat Döküm'}
-          </Text>
+          {/* Bölge: il / ilçe */}
+          {(item.provinceName || item.districtName) ? (
+            <Text style={styles.locationText}>
+              📍 {item.provinceName}{item.districtName ? ` / ${item.districtName}` : ''}
+            </Text>
+          ) : null}
         </View>
 
-        <TouchableOpacity style={styles.moreBtn} onPress={() => handleOpenDetails(item)}>
+        <TouchableOpacity style={styles.moreBtn} onPress={() => {
+          setSelectedJob(item);
+          setDetailVisible(true);
+        }}>
           <Image style={{ width: 20, height: 20 }} source={require('../../../assets/icons/dots.png')} />
           <Text style={styles.moreText}>Ayrıntılar</Text>
         </TouchableOpacity>
@@ -162,9 +407,16 @@ const AllJobs = () => {
           label="Konum"
           onPress={() => handleLocationPress(item.locationUrl)}
         />
-        <ActionItem icon={require('../../../assets/icons/phone-call.png')} label="Arama" />
-        <ActionItem icon={require('../../../assets/icons/send.png')} label="Paylaş" />
-        {/* <ActionItem icon={require('../../../assets/icons/dots.png')} label="Ayrıntılar" /> */}
+        <ActionItem
+          icon={require('../../../assets/icons/phone-call.png')}
+          label="Arama"
+          onPress={() => handleCallPress1(item.phone)}
+        />
+        <ActionItem
+          icon={require('../../../assets/icons/send.png')}
+          label="Paylaş"
+          onPress={() => handleSharePress(item)}
+        />
       </View>
 
       {/* TABLE */}
@@ -200,6 +452,13 @@ const AllJobs = () => {
         </>
       )}
 
+      {/* TABELA AÇIKLAMASI (aktifse göster) */}
+      {item.isActive && !!item.signDescription && (
+        <View style={styles.signDescBox}>
+          <Text style={styles.signDescText} numberOfLines={4}>{item.signDescription}</Text>
+        </View>
+      )}
+
       {/* STATUS */}
       <View style={[styles.statusBar, { backgroundColor: item.statusColor }]}>
         <Text style={styles.statusText}>{item.status}</Text>
@@ -208,7 +467,13 @@ const AllJobs = () => {
   );
 
   return (
+
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
+      <JobDetailModal
+        visible={detailVisible}
+        job={selectedJob}
+        onClose={() => setDetailVisible(false)}
+      />
       <FlatList
         style={{ flex: 1 }}
         data={filteredJobs}
@@ -251,9 +516,9 @@ const AllJobs = () => {
                   activeOpacity={0.8}
                 >
                   <Text style={styles.cityText}>
-                    {selectedCity
-                      ? CITIES.find(c => c.value === selectedCity)?.label
-                      : 'İl'}
+                    {selectedCity != null
+                      ? CITIES.find(c => c.value === selectedCity)?.label ?? 'İl'
+                      : 'Tüm Türkiye'}
                   </Text>
                   <Image
                     source={require('../../../assets/icons/down-arrow.png')}
@@ -322,98 +587,6 @@ const AllJobs = () => {
         }
 
       />
-
-      {/* DETAILS MODAL */}
-      {selectedJob && (
-        <React.Fragment>
-          {/* Use React.Fragment or just render Modal directly if possible, importing Modal first */}
-          {/* I need to import Modal at the top of the file first. */}
-          {/* Wait, imports are at the top. I need to make sure Modal is imported. */}
-        </React.Fragment>
-      )}
-      <Modal
-        visible={detailsModalVisible}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={handleCloseDetails}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>İş Detayları</Text>
-              <TouchableOpacity onPress={handleCloseDetails}>
-                <Text style={styles.closeText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.modalBody}>
-              <Text style={styles.modalLabel}>Firma:</Text>
-              <Text style={styles.modalValue}>{selectedJob?.company}</Text>
-
-              <Text style={styles.modalLabel}>Şantiye:</Text>
-              <Text style={styles.modalValue}>{selectedJob?.site}</Text>
-
-              <Text style={styles.modalLabel}>İş Türü:</Text>
-              <Text style={styles.modalValue}>{selectedJob?.jobType === 1 ? 'Kum & Mıcır' : 'Hafriyat Döküm'}</Text>
-
-              <Text style={styles.modalLabel}>Çalışma Saatleri:</Text>
-              <Text style={styles.modalValue}>
-                {selectedJob?.loadingStartTime || '??'} - {selectedJob?.loadingEndTime || '??'}
-              </Text>
-
-              <Text style={styles.modalLabel}>Açıklama:</Text>
-              <Text style={styles.modalDescription}>{selectedJob?.description || 'Açıklama yok.'}</Text>
-
-              {/* TEKLİFLER (Hafriyat) */}
-              {selectedJob?.jobType !== 1 && selectedJob?.dumps?.length > 0 && (
-                <>
-                  <Text style={styles.modalLabel}>Teklifler:</Text>
-                  {selectedJob.dumps.map((d: any, i: number) => (
-                    <View key={i} style={styles.offerRow}>
-                      <Text style={styles.offerPlace}>{d.place}</Text>
-                      <Text style={styles.offerCash}>{d.cash}</Text>
-                      {d.fuel !== '-' && <Text style={styles.offerFuel}>{d.fuel}</Text>}
-                    </View>
-                  ))}
-                </>
-              )}
-
-              {/* ROTALAR (Kum/Mıcır) */}
-              {selectedJob?.jobType === 1 && selectedJob?.routes?.length > 0 && (
-                <>
-                  <Text style={styles.modalLabel}>Rotalar:</Text>
-                  {selectedJob.routes.map((r: any, i: number) => (
-                    <View key={i} style={styles.routeBox}>
-                      <Text style={styles.routeLine}>
-                        <Text style={styles.routeKey}>Yükleme: </Text>{r.loading}
-                      </Text>
-                      <Text style={styles.routeLine}>
-                        <Text style={styles.routeKey}>Boşaltma: </Text>{r.unloading}
-                      </Text>
-                      <View style={{ flexDirection: 'row', gap: 16, marginTop: 4 }}>
-                        <Text style={styles.routeCash}>{r.cash}</Text>
-                        {r.material !== '-' && <Text style={styles.routeMaterial}>{r.material}</Text>}
-                      </View>
-                    </View>
-                  ))}
-                </>
-              )}
-
-              <Text style={styles.modalLabel}>İletişim:</Text>
-              <Text style={styles.modalValue}>{selectedJob?.phone || '-'}</Text>
-
-              <Text style={styles.modalLabel}>Konum:</Text>
-              <Text style={styles.modalValue}>{selectedJob?.locationUrl || '-'}</Text>
-            </ScrollView>
-
-            <View style={styles.modalFooter}>
-              <TouchableOpacity style={styles.closeBtn} onPress={handleCloseDetails}>
-                <Text style={styles.closeBtnText}>Kapat</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 };
@@ -480,14 +653,38 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   company: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: DARK,
   },
-  site: {
+  jopType: {
     fontSize: 13,
+    fontWeight: '400',
+    color: DARK,
+  },
+  site: {
+    fontSize: 15,
     color: '#666',
     marginTop: 2,
+  },
+  locationText: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  signDescBox: {
+    backgroundColor: '#FFF8E1',
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#FFE082',
+  },
+  signDescText: {
+    fontSize: 13,
+    color: '#555',
+    lineHeight: 18,
   },
   moreBtn: {
     paddingHorizontal: 8,
@@ -668,129 +865,223 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  /* JOB TYPE */
-  jobType: {
-    fontSize: 12,
-    color: '#F5A623',
-    fontWeight: '700',
-    marginTop: 2,
-  },
-
-  /* MODAL */
-  modalOverlay: {
+});
+const modalStyles = StyleSheet.create({
+  overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.45)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  modalContent: {
-    width: '85%',
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    overflow: 'hidden',
+
+  container: {
+    width: '88%',
     maxHeight: '80%',
+    backgroundColor: '#fff',
+    borderRadius: 22,
+    overflow: 'hidden',
   },
-  modalHeader: {
+
+  contentScroll: {
+    flexShrink: 1,
+  },
+
+  header: {
+    backgroundColor: '#FFF7E0',
+    padding: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    backgroundColor: '#FAFAFA',
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: DARK,
-  },
-  closeText: {
-    fontSize: 20,
-    color: '#999',
-    padding: 4,
-  },
-  modalBody: {
-    padding: 20,
-  },
-  modalLabel: {
-    fontSize: 12,
-    color: '#888',
-    marginBottom: 2,
-    marginTop: 10,
-  },
-  modalValue: {
-    fontSize: 14,
-    color: DARK,
-    fontWeight: '500',
-  },
-  modalDescription: {
-    fontSize: 14,
-    color: DARK,
-    lineHeight: 20,
-  },
-  modalFooter: {
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-    alignItems: 'center',
-  },
-  closeBtn: {
-    backgroundColor: DARK,
-    paddingHorizontal: 24,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  closeBtnText: {
-    color: '#fff',
-    fontWeight: '600',
   },
 
-  offerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
-  },
-  offerPlace: {
-    flex: 1,
-    fontSize: 13,
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: '700',
     color: DARK,
   },
-  offerCash: {
+
+  close: {
+    fontSize: 18,
+    color: '#555',
+  },
+
+  content: {
+    padding: 16,
+  },
+
+  label: {
+    fontSize: 11,
+    color: '#999',
+    marginBottom: 4,
+  },
+
+  value: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: DARK,
+    marginBottom: 14,
+  },
+
+  row: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 14,
+  },
+
+  /* Teklifler / Rotalar kutusu */
+  offersBox: {
+    backgroundColor: '#FCFCFC',
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 14,
+  },
+  offersTableHeader: {
+    flexDirection: 'row',
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+    marginBottom: 4,
+  },
+  offersThLeft: {
+    flex: 2,
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#bbb',
+    textTransform: 'uppercase',
+  },
+  offersTh: {
+    flex: 1,
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#bbb',
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
+  offersTdRow: {
+    flexDirection: 'row',
+    paddingVertical: 5,
+    borderTopWidth: 1,
+    borderTopColor: '#F9F9F9',
+  },
+  offersTdLeft: {
+    flex: 2,
     fontSize: 13,
     fontWeight: '700',
-    color: '#2E7D32',
+    color: DARK,
   },
-  offerFuel: {
+  offersTd: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+    color: '#444',
+  },
+
+  /* Kum/Mıcır rota satırı */
+  routeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F5F5F5',
+  },
+  routePath: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: DARK,
+  },
+  routeMaterial: {
     fontSize: 12,
+    color: '#999',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  routePrice: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#2ecc71',
+  },
+
+  /* Açıklama kutusu */
+  descBox: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 14,
+  },
+  descText: {
+    fontSize: 14,
+    color: '#555',
+    lineHeight: 20,
+  },
+
+  /* İletişim pill'ları */
+  phoneList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 14,
+  },
+  phonePill: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: '#F0F0F0',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#DDD',
+  },
+  phonePillText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: DARK,
+  },
+
+  footer: {
+    flexDirection: 'row',
+    padding: 14,
+    gap: 8,
+  },
+
+  closeBtn: {
+    flex: 1,
+    backgroundColor: '#F2F2F2',
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  closeBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: DARK,
+  },
+
+  locationBtn: {
+    flex: 1,
+    backgroundColor: '#E3F2FD',
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  locationBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
     color: '#1565C0',
   },
 
-  routeBox: {
-    backgroundColor: '#F9F9F9',
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 6,
+  callBtn: {
+    flex: 1,
+    backgroundColor: '#FFA500',
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
   },
-  routeLine: {
-    fontSize: 13,
-    color: DARK,
-    marginBottom: 2,
-  },
-  routeKey: {
-    fontSize: 12,
-    color: '#999',
-    fontWeight: '600',
-  },
-  routeCash: {
-    fontSize: 13,
+  callText: {
+    fontSize: 14,
     fontWeight: '700',
-    color: '#2E7D32',
-  },
-  routeMaterial: {
-    fontSize: 13,
-    color: '#555',
+    color: '#fff',
   },
 });
+

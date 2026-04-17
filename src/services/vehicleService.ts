@@ -70,3 +70,15 @@ export const removeDriver = async (vehicleId: string, driverUserId: string, toke
   });
   return res.data;
 };
+
+// Şoför kendi aracını ekler (plaka sistemde yoksa oluşturur ve atar)
+export const driverAddVehicle = async (plateNumber: string) => {
+  const res = await api.post('/Vehicle/driver-add', { plateNumber });
+  return res.data;
+};
+
+// Şoför araçtan ayrılır
+export const driverLeaveVehicle = async (vehicleId: string) => {
+  const res = await api.delete(`/Vehicle/driver-leave/${vehicleId}`);
+  return res.data;
+};

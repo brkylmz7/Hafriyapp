@@ -1,6 +1,13 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, TextInput, Platform, ActionSheetIOS, Alert, Modal, ScrollView, ActivityIndicator, SectionList } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+
+const IMAGE_BASE = 'https://api.hafriyapp.com';
+const buildLogoUrl = (path?: string | null): string => {
+  if (!path) return '';
+  if (path.startsWith('http')) return path;
+  return `${IMAGE_BASE}${path.startsWith('/') ? '' : '/'}${path}`;
+};
 import { CITIES } from '../../constants/cities';
 import { useAppSelector } from '../../hooks';
 import { getChatGroups, createChatGroup } from '../../services/chatService';
@@ -154,7 +161,6 @@ export default function SupplierHome() {
   }, [citySearch]);
 
   const renderItem = ({ item }: { item: any }) => {
-    // Keşfet gruplarında açıklama göster (son mesaj yoksa), üye gruplarında son mesajı göster
     const previewText = item.isMember
       ? (item.lastMessageSenderName ? `${item.lastMessageSenderName}: ` : '') + (item.lastMessagePreview || 'Henüz mesaj yok')
       : (item.description || item.lastMessagePreview || 'Henüz mesaj yok');
@@ -162,8 +168,12 @@ export default function SupplierHome() {
     return (
       <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('CompanyChat', { group: item })} activeOpacity={0.7}>
         <View style={styles.iconContainer}>
-          {item.imageUrl ? (
-            <Image source={{ uri: item.imageUrl }} style={{ width: 50, height: 50, borderRadius: 25 }} />
+          {buildLogoUrl(item.imageUrl) ? (
+            <Image
+              source={{ uri: buildLogoUrl(item.imageUrl) }}
+              style={styles.logoImage}
+              defaultSource={require('../../../assets/icons/city.png')}
+            />
           ) : (
             <Image source={require('../../../assets/icons/city.png')} style={styles.icon} />
           )}
@@ -178,7 +188,6 @@ export default function SupplierHome() {
           <Text style={styles.time}>
             {item.lastMessageAt ? new Date(item.lastMessageAt).toLocaleDateString("tr-TR", { day: '2-digit', month: '2-digit' }) : ''}
           </Text>
-
           {item.isMember ? (
             <View style={styles.memberBadge}>
               <Text style={styles.memberBadgeText}>Üye</Text>
@@ -193,7 +202,20 @@ export default function SupplierHome() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>FİRMA SAYFALARI</Text>
+      <View style={styles.titleRow}>
+        <Text style={styles.title}>FİRMA SAYFALARI</Text>
+        <TouchableOpacity
+          style={[styles.refreshBtn, loading && styles.refreshBtnLoading]}
+          onPress={() => fetchGroups(true)}
+          disabled={loading}
+          activeOpacity={0.7}
+        >
+          {loading
+            ? <ActivityIndicator size="small" color="#000" />
+            : <Text style={styles.refreshBtnText}>↻</Text>
+          }
+        </TouchableOpacity>
+      </View>
 
       <View style={styles.searchRow}>
         {/* 🔍 ARAMA */}
@@ -368,11 +390,37 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     padding: 16,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
   title: {
     fontSize: 16,
     fontWeight: '800',
-    textAlign: 'center',
-    marginBottom: 12,
+  },
+  refreshBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F2F2F2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  refreshBtnLoading: {
+    opacity: 0.6,
+  },
+  refreshBtnText: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#333',
+  },
+  logoImage: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    resizeMode: 'cover',
   },
   searchRow: {
     flexDirection: 'row',
@@ -639,3 +687,4 @@ const styles = StyleSheet.create({
     fontSize: 16,
   }
 });
+

@@ -57,3 +57,53 @@ export const sendMessage = async (token: string, groupId: string, content: strin
         throw error;
     }
 };
+
+export const getGroupDetail = async (token: string, id: string) => {
+    const response = await api.get(`/ChatGroup/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+};
+
+export const updateGroupSettings = async (token: string, id: string, data: { name?: string; description?: string }) => {
+    const response = await api.put(`/ChatGroup/${id}`, data, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+};
+
+export const uploadGroupImage = async (token: string, id: string, base64Image: string) => {
+    const response = await api.post(`/ChatGroup/${id}/upload-image`, { base64Image }, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+};
+
+export const deleteGroup = async (token: string, id: string) => {
+    const response = await api.delete(`/ChatGroup/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+};
+
+export const getBlockedPhones = async (token: string, id: string) => {
+    const response = await api.get(`/ChatGroup/${id}/blocked-phones`, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+};
+
+export const addBlockedPhone = async (token: string, id: string, phoneNumber: string) => {
+    const response = await api.post(`/ChatGroup/${id}/blocked-phones`, { phoneNumber }, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+};
+
+export const removeBlockedPhone = async (token: string, id: string, phoneNumber: string) => {
+    const response = await api.delete(`/ChatGroup/${id}/blocked-phones`, {
+        params: { phoneNumber },
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+};

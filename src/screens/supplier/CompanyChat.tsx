@@ -2,10 +2,22 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Modal, ScrollView, Image } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { launchImageLibrary } from 'react-native-image-picker';
 import { useAppSelector } from '../../hooks';
-import { getGroupMessages, sendMessage as sendMsgComp } from '../../services/chatService';
+import {
+  getGroupMessages, sendMessage as sendMsgComp,
+  getGroupDetail, updateGroupSettings, uploadGroupImage,
+  deleteGroup as deleteChatGroup, getBlockedPhones,
+  addBlockedPhone, removeBlockedPhone,
+} from '../../services/chatService';
 
 const YELLOW = '#FFD500';
+const IMAGE_BASE = 'https://api.hafriyapp.com';
+const buildImgUrl = (path?: string | null): string => {
+  if (!path) return '';
+  if (path.startsWith('http')) return path;
+  return `${IMAGE_BASE}${path.startsWith('/') ? '' : '/'}${path}`;
+};
 
 export default function CompanyChat() {
   const route = useRoute<any>();
@@ -23,11 +35,143 @@ export default function CompanyChat() {
   const [detailVisible, setDetailVisible] = useState(false);
   const token = useAppSelector(state => state.auth.token);
 
+  /* ─── SETTINGS ─── */
+  const [isOwner, setIsOwner] = useState(false);
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [settingsGroup, setSettingsGroup] = useState<any>(null);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsName, setSettingsName] = useState('');
+  const [settingsDesc, setSettingsDesc] = useState('');
+  const [settingsNewImage, setSettingsNewImage] = useState<string | null>(null);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [blockedPhones, setBlockedPhones] = useState<string[]>([]);
+  const [blockInputPhone, setBlockInputPhone] = useState('');
+  const [blockingPhone, setBlockingPhone] = useState(false);
+  const [groupDeleting, setGroupDeleting] = useState(false);
+
   // groupId değişince mesajları temizle ve yeniden yükle (farklı gruba geçişte eski mesajlar görünmesin)
   useEffect(() => {
     setMessages([]);
+    setIsOwner(false);
     fetchMessages();
+    checkOwnership();
   }, [groupId]);
+
+  const checkOwnership = async () => {
+    if (!token || !groupId) return;
+    try {
+      const res = await getGroupDetail(token, groupId);
+      setIsOwner(!!res?.data?.isOwner);
+    } catch { /* sessizce geç */ }
+  };
+
+  const openSettings = async () => {
+    setSettingsVisible(true);
+    setSettingsLoading(true);
+    setSettingsGroup(null);
+    setSettingsNewImage(null);
+    setBlockedPhones([]);
+    setBlockInputPhone('');
+    try {
+      const res = await getGroupDetail(token!, groupId);
+      const detail = res?.data;
+      if (!detail) throw new Error();
+      setSettingsGroup(detail);
+      setSettingsName(detail.name || '');
+      setSettingsDesc(detail.description || '');
+      const bpRes = await getBlockedPhones(token!, groupId);
+      setBlockedPhones(bpRes?.data || []);
+    } catch {
+      setSettingsVisible(false);
+      Alert.alert('Hata', 'Grup bilgileri yüklenemedi.');
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
+
+  const pickSettingsImage = () => {
+    launchImageLibrary(
+      { mediaType: 'photo', includeBase64: true, quality: 0.7, maxWidth: 800, maxHeight: 800 },
+      (response) => {
+        if (response.didCancel || response.errorCode) return;
+        const asset = response.assets?.[0];
+        if (!asset?.base64) return;
+        setSettingsNewImage(`data:${asset.type || 'image/jpeg'};base64,${asset.base64}`);
+      },
+    );
+  };
+
+  const saveSettings = async () => {
+    if (!settingsGroup || !token) return;
+    setSettingsSaving(true);
+    try {
+      if (settingsNewImage) {
+        await uploadGroupImage(token, settingsGroup.id, settingsNewImage);
+      }
+      await updateGroupSettings(token, settingsGroup.id, {
+        name: settingsName,
+        description: settingsDesc,
+      });
+      Alert.alert('Başarılı', 'Grup bilgileri güncellendi.');
+    } catch {
+      Alert.alert('Hata', 'Grup güncellenemedi.');
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
+  const handleAddBlockedPhone = async () => {
+    const phone = blockInputPhone.trim();
+    if (!phone || !settingsGroup || !token) return;
+    setBlockingPhone(true);
+    try {
+      await addBlockedPhone(token, settingsGroup.id, phone);
+      setBlockInputPhone('');
+      const bpRes = await getBlockedPhones(token, settingsGroup.id);
+      setBlockedPhones(bpRes?.data || []);
+    } catch {
+      Alert.alert('Hata', 'Numara engellenemedi.');
+    } finally {
+      setBlockingPhone(false);
+    }
+  };
+
+  const handleRemoveBlockedPhone = async (phone: string) => {
+    if (!settingsGroup || !token) return;
+    try {
+      await removeBlockedPhone(token, settingsGroup.id, phone);
+      setBlockedPhones(prev => prev.filter(p => p !== phone));
+    } catch {
+      Alert.alert('Hata', 'Numara kaldırılamadı.');
+    }
+  };
+
+  const handleDeleteGroup = () => {
+    if (!settingsGroup || !token) return;
+    Alert.alert(
+      'Grubu Sil',
+      'Grubu silmek geri alınamaz. Tüm mesajlar ve üyeler silinecektir.',
+      [
+        { text: 'İptal', style: 'cancel' },
+        {
+          text: 'Sil',
+          style: 'destructive',
+          onPress: async () => {
+            setGroupDeleting(true);
+            try {
+              await deleteChatGroup(token!, settingsGroup.id);
+              setSettingsVisible(false);
+              navigation.goBack();
+            } catch {
+              Alert.alert('Hata', 'Grup silinemedi.');
+            } finally {
+              setGroupDeleting(false);
+            }
+          },
+        },
+      ],
+    );
+  };
 
   const fetchMessages = async () => {
     if (!token || !groupId) return;
@@ -110,9 +254,16 @@ export default function CompanyChat() {
           {title}
         </Text>
 
-        <TouchableOpacity onPress={() => setDetailVisible(true)} style={styles.detailBtn}>
-          <Text style={styles.detailBtnText}>ℹ︎ Detay</Text>
-        </TouchableOpacity>
+        <View style={styles.headerBtns}>
+          <TouchableOpacity onPress={() => setDetailVisible(true)} style={styles.detailBtn}>
+            <Text style={styles.detailBtnText}>Detay</Text>
+          </TouchableOpacity>
+          {isOwner && (
+            <TouchableOpacity onPress={openSettings} style={styles.settingsBtn}>
+              <Text style={styles.settingsBtnText}>⚙</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       <KeyboardAvoidingView
@@ -151,8 +302,8 @@ export default function CompanyChat() {
               <Text style={{ fontSize: 18, fontWeight: '700', color: '#333' }}>✕</Text>
             </TouchableOpacity>
             <View style={styles.detailAvatar}>
-              {groupData?.imageUrl ? (
-                <Image source={{ uri: groupData.imageUrl }} style={{ width: '100%', height: '100%', borderRadius: 35 }} />
+              {buildImgUrl(groupData?.imageUrl) ? (
+                <Image source={{ uri: buildImgUrl(groupData.imageUrl) }} style={{ width: '100%', height: '100%', borderRadius: 35 }} />
               ) : (
                 <Text style={{ fontSize: 30 }}>🏢</Text>
               )}
@@ -219,6 +370,123 @@ export default function CompanyChat() {
 
             <View style={{ height: 40 }} />
           </ScrollView>
+        </View>
+      </Modal>
+
+      {/* GRUP AYARLARI MODAL */}
+      <Modal visible={settingsVisible} animationType="slide" presentationStyle="pageSheet">
+        <View style={ss.container}>
+          <View style={ss.header}>
+            <TouchableOpacity onPress={() => setSettingsVisible(false)} style={ss.backBtn}>
+              <Text style={ss.backBtnText}>←</Text>
+            </TouchableOpacity>
+            <Text style={ss.headerTitle}>⚙ Grup Ayarları</Text>
+            <View style={{ width: 44 }} />
+          </View>
+
+          {settingsLoading ? (
+            <View style={ss.loadingContainer}>
+              <ActivityIndicator size="large" color="#FFD500" />
+              <Text style={ss.loadingText}>Yükleniyor...</Text>
+            </View>
+          ) : settingsGroup ? (
+            <ScrollView style={ss.body} keyboardShouldPersistTaps="handled">
+              {/* Logo */}
+              <Text style={ss.label}>Grup Logosu</Text>
+              <View style={ss.logoSection}>
+                <View style={ss.logoCircle}>
+                  {settingsNewImage ? (
+                    <Image source={{ uri: settingsNewImage }} style={ss.logoImg} />
+                  ) : buildImgUrl(settingsGroup.imageUrl) ? (
+                    <Image source={{ uri: buildImgUrl(settingsGroup.imageUrl) }} style={ss.logoImg} />
+                  ) : (
+                    <Text style={{ fontSize: 36 }}>🏢</Text>
+                  )}
+                </View>
+                <TouchableOpacity style={ss.pickImageBtn} onPress={pickSettingsImage}>
+                  <Text style={ss.pickImageText}>⊙ Resim Seç</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Grup Adı */}
+              <Text style={ss.label}>Grup Adı</Text>
+              <TextInput
+                style={ss.input}
+                value={settingsName}
+                onChangeText={setSettingsName}
+                placeholder="Grup adı..."
+              />
+
+              {/* Açıklama */}
+              <Text style={ss.label}>Açıklama</Text>
+              <TextInput
+                style={[ss.input, ss.textArea]}
+                value={settingsDesc}
+                onChangeText={setSettingsDesc}
+                placeholder="Grup açıklaması..."
+                multiline
+                textAlignVertical="top"
+              />
+
+              {/* Kaydet */}
+              <TouchableOpacity style={ss.saveBtn} onPress={saveSettings} disabled={settingsSaving}>
+                {settingsSaving
+                  ? <ActivityIndicator color="#333" />
+                  : <Text style={ss.saveBtnText}>✓ Kaydet</Text>}
+              </TouchableOpacity>
+
+              {/* Engellenen Numaralar */}
+              <View style={ss.blockedCard}>
+                <Text style={ss.blockedTitle}>🛡 Engellenen Numaralar</Text>
+                <Text style={ss.blockedSubtitle}>Engellenen numaralar bu gruba mesaj gönderemez.</Text>
+                <View style={ss.blockRow}>
+                  <TextInput
+                    style={ss.blockInput}
+                    value={blockInputPhone}
+                    onChangeText={setBlockInputPhone}
+                    placeholder="05XX XXX XX XX"
+                    keyboardType="phone-pad"
+                  />
+                  <TouchableOpacity style={ss.blockBtn} onPress={handleAddBlockedPhone} disabled={blockingPhone}>
+                    {blockingPhone
+                      ? <ActivityIndicator color="#fff" size="small" />
+                      : <Text style={ss.blockBtnText}>+ Engelle</Text>}
+                  </TouchableOpacity>
+                </View>
+                {blockedPhones.length === 0 ? (
+                  <Text style={ss.noBlockedText}>✓ Engellenen numara yok</Text>
+                ) : (
+                  blockedPhones.map(phone => (
+                    <View key={phone} style={ss.blockedPhoneRow}>
+                      <Text style={ss.blockedPhoneText}>{phone}</Text>
+                      <TouchableOpacity onPress={() => handleRemoveBlockedPhone(phone)} style={ss.removeBlockBtn}>
+                        <Text style={ss.removeBlockBtnText}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))
+                )}
+              </View>
+
+              {/* Danger Zone */}
+              <View style={ss.dangerCard}>
+                <Text style={ss.dangerText}>
+                  Grubu silmek geri alınamaz. Tüm mesajlar ve üyeler silinecektir.
+                </Text>
+                <TouchableOpacity style={ss.deleteBtn} onPress={handleDeleteGroup} disabled={groupDeleting}>
+                  {groupDeleting
+                    ? <ActivityIndicator color="#fff" />
+                    : <Text style={ss.deleteBtnText}>🗑 Grubu Sil</Text>}
+                </TouchableOpacity>
+              </View>
+
+              {/* Sohbete Dön */}
+              <TouchableOpacity style={ss.backToChat} onPress={() => setSettingsVisible(false)}>
+                <Text style={ss.backToChatText}>← Sohbete Dön</Text>
+              </TouchableOpacity>
+
+              <View style={{ height: 40 }} />
+            </ScrollView>
+          ) : null}
         </View>
       </Modal>
     </View>
@@ -312,6 +580,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 16,
   },
+  headerBtns: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   detailBtn: {
     backgroundColor: 'rgba(255,255,255,0.3)',
     paddingHorizontal: 10,
@@ -323,6 +596,20 @@ const styles = StyleSheet.create({
   detailBtnText: {
     fontSize: 13,
     fontWeight: '600',
+    color: '#333',
+  },
+  settingsBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255,255,255,0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+  settingsBtnText: {
+    fontSize: 18,
     color: '#333',
   },
   /* DETAY MODAL */
@@ -405,4 +692,73 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#333',
   },
+});
+
+/* ─── GROUP SETTINGS MODAL STYLES ─── */
+const ss = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#FFFBE6' },
+  header: {
+    backgroundColor: '#FFD500',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  backBtn: { width: 44, height: 44, justifyContent: 'center' },
+  backBtnText: { fontSize: 22, fontWeight: '700', color: '#333' },
+  headerTitle: { fontSize: 17, fontWeight: '700', color: '#333', flex: 1, textAlign: 'center' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 12, color: '#666', fontSize: 14 },
+  body: { padding: 20 },
+  label: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 8, marginTop: 18 },
+  logoSection: { alignItems: 'center', marginBottom: 4, marginTop: 4 },
+  logoCircle: {
+    width: 90, height: 90, borderRadius: 45, backgroundColor: '#F0F0F0',
+    justifyContent: 'center', alignItems: 'center', marginBottom: 12,
+    overflow: 'hidden', borderWidth: 2, borderColor: '#ddd',
+  },
+  logoImg: { width: 90, height: 90, borderRadius: 45 },
+  pickImageBtn: { paddingHorizontal: 22, paddingVertical: 10, borderRadius: 20, backgroundColor: '#FFD500' },
+  pickImageText: { fontSize: 14, fontWeight: '600', color: '#333' },
+  input: {
+    backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd',
+    borderRadius: 10, paddingHorizontal: 14, height: 48, fontSize: 14, color: '#333',
+  },
+  textArea: { height: 90, paddingTop: 12 },
+  saveBtn: { backgroundColor: '#FFD500', paddingVertical: 15, borderRadius: 12, alignItems: 'center', marginTop: 22 },
+  saveBtnText: { fontSize: 16, fontWeight: '700', color: '#333' },
+  blockedCard: {
+    backgroundColor: '#fff', borderRadius: 14, padding: 16,
+    marginTop: 24, borderWidth: 1, borderColor: '#eee',
+  },
+  blockedTitle: { fontSize: 16, fontWeight: '700', color: '#333', marginBottom: 4 },
+  blockedSubtitle: { fontSize: 13, color: '#666', marginBottom: 14, lineHeight: 18 },
+  blockRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+  blockInput: {
+    flex: 1, backgroundColor: '#F7F7F7', borderWidth: 1, borderColor: '#ddd',
+    borderRadius: 10, paddingHorizontal: 12, height: 46, fontSize: 14,
+  },
+  blockBtn: {
+    backgroundColor: '#C62828', paddingHorizontal: 16, borderRadius: 10,
+    justifyContent: 'center', alignItems: 'center', height: 46, minWidth: 90,
+  },
+  blockBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  noBlockedText: { textAlign: 'center', color: '#aaa', fontSize: 13, paddingVertical: 10 },
+  blockedPhoneRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#f0f0f0',
+  },
+  blockedPhoneText: { fontSize: 14, color: '#333' },
+  removeBlockBtn: { padding: 6 },
+  removeBlockBtnText: { color: '#C62828', fontWeight: '700', fontSize: 16 },
+  dangerCard: {
+    backgroundColor: '#fff', borderRadius: 14, padding: 16,
+    marginTop: 20, borderWidth: 1.5, borderColor: '#C62828',
+  },
+  dangerText: { fontSize: 13, color: '#555', lineHeight: 20, marginBottom: 14 },
+  deleteBtn: { backgroundColor: '#C62828', paddingVertical: 15, borderRadius: 12, alignItems: 'center' },
+  deleteBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  backToChat: { backgroundColor: '#F0F0F0', paddingVertical: 15, borderRadius: 12, alignItems: 'center', marginTop: 16 },
+  backToChatText: { color: '#555', fontWeight: '600', fontSize: 15 },
 });
