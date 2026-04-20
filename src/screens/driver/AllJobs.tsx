@@ -370,7 +370,11 @@ const AllJobs = () => {
     }
   };
   const renderItem = ({ item }: any) => (
-    <View style={styles.card}>
+    <TouchableOpacity
+      style={styles.card}
+      activeOpacity={0.92}
+      onPress={() => { setSelectedJob(item); setDetailVisible(true); }}
+    >
       {/* HEADER */}
       <View style={styles.cardHeader}>
         <LogoImage source={item.logo} style={styles.logo} />
@@ -463,7 +467,7 @@ const AllJobs = () => {
       <View style={[styles.statusBar, { backgroundColor: item.statusColor }]}>
         <Text style={styles.statusText}>{item.status}</Text>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 
   return (

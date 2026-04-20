@@ -48,6 +48,7 @@ type Job = {
   loadingEndTime: string;
   canEdit: boolean;
   isActive: boolean;
+  showHaulsToVehicleOwners: boolean;
   fuelLiters: number;
   sandFuelLiters: number;
 };
@@ -88,6 +89,7 @@ export default function MyJobs() {
       else setLoading(true);
 
       const data = await getJobSites(token);
+      console.log('[MyJobs] job list from API:', JSON.stringify(data.map((item: any) => ({ id: item.id, name: item.name, isHaulVisibleToVehicleOwners: item.isHaulVisibleToVehicleOwners })), null, 2));
 
       const mapped: JobUI[] = await Promise.all(
         data.map(async (item: any) => {

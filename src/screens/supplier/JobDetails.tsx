@@ -11,7 +11,7 @@ import { getJobHauls, deleteJobSite, updateJobSite } from '../../services/jobSit
 import RNBlobUtil from 'react-native-blob-util';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NewJobModal from '../../components/NewJobModal';
-import { createHaul, updateHaulPayment, HaulApi } from '../../services/haulService';
+import { createHaul, updateHaulPayment, deleteHaul, HaulApi } from '../../services/haulService';
 import {
   addPendingHaul,
   removePendingHaul,
@@ -125,6 +125,7 @@ export default function JobDetails() {
   const navigation = useNavigation();
   const route = useRoute<any>();
   const { job } = route.params || {};
+  console.log('[JobDetails] job from params:', JSON.stringify(job, null, 2));
   const dispatch = useAppDispatch();
 
   const token = useAppSelector(state => state.auth.token);
@@ -737,6 +738,32 @@ export default function JobDetails() {
     </View>
   );
 
+  const isWithinOneHour = (createdDate: string) => {
+    const utc = createdDate.endsWith('Z') ? createdDate : createdDate + 'Z';
+    return (Date.now() - new Date(utc).getTime()) < 3600000;
+  };
+
+  const handleDeleteHaul = (item: HaulApi) => {
+    Alert.alert(
+      'Seferi Sil',
+      `${item.plateNumber} - ${item.dumpLocation || ''} seferini silmek istediğinize emin misiniz?`,
+      [
+        { text: 'Vazgeç', style: 'cancel' },
+        {
+          text: 'Sil', style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteHaul(item.id, token!);
+              setHauls(prev => prev.filter(h => h.id !== item.id));
+            } catch {
+              Alert.alert('Hata', 'Sefer silinemedi.');
+            }
+          },
+        },
+      ],
+    );
+  };
+
   // ── Material lookup helper (Kum/Mıcır)
   const getMaterialFromDumpLocation = (dumpLocation: string): string => {
     if (!isKum || !dumpLocation) return '';
@@ -788,14 +815,17 @@ export default function JobDetails() {
         <View style={styles.haulCardBot}>
           <Text style={styles.haulDump} numberOfLines={1}>→ {item.dumpLocation || '-'}</Text>
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            {!item.isPaid && (
+            {!item.isPaid && item.isPrintedReceipt && (
               <TouchableOpacity style={styles.approveBtn} onPress={() => openPaymentConfirm(item)}>
                 <Text style={styles.approveBtnText}>✔ Onayla</Text>
               </TouchableOpacity>
             )}
-            {/* <TouchableOpacity style={styles.printBtn} onPress={() => triggerPrint(item)}>
-              <Text style={styles.printBtnText}>🖨 Yazdır</Text>
-            </TouchableOpacity> */}
+            {console.log('[deleteBtn]', item.id.slice(0,8), '| isPaid:', item.isPaid, '| canEdit:', job?.canEdit, '| createdDate:', item.createdDate, '| withinHour:', isWithinOneHour(item.createdDate)) as any}
+            {!item.isPaid && job?.canEdit && isWithinOneHour(item.createdDate) && (
+              <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDeleteHaul(item)}>
+                <Text style={styles.deleteBtnText}>🗑 Sil</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity style={styles.eyeBtn} onPress={() => { setSelectedHaul(item); setReceiptVisible(true); }}>
               <Text style={styles.eyeBtnText}>👁 Fiş</Text>
             </TouchableOpacity>
@@ -1586,6 +1616,8 @@ const styles = StyleSheet.create({
   haulCardBot: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#F0F0F0', paddingTop: 8 },
   haulDump: { fontSize: 12, color: '#666', flex: 1 },
   eyeBtn: { borderWidth: 1.5, borderColor: '#1565C0', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
+  deleteBtn: { borderWidth: 1.5, borderColor: '#E53935', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
+  deleteBtnText: { color: '#E53935', fontSize: 12, fontWeight: '700' },
   eyeBtnText: { color: '#1565C0', fontSize: 12, fontWeight: '700' },
   approveBtn: { backgroundColor: '#E8F5E9', borderWidth: 1.5, borderColor: '#2E7D32', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
   approveBtnText: { color: '#2E7D32', fontSize: 12, fontWeight: '700' },

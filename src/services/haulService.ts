@@ -29,6 +29,7 @@ export type HaulApi = {
   offer2Cash?: number;
   offer2Fuel?: number;
   createdDate: string;
+  isVisibleToVehicleOwner: boolean;
 };
 
 // Tüm seferleri getir (kullanıcıya ait araçların seferleri)
@@ -50,6 +51,19 @@ export const getHaulsFiltered = async (
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
   });
   return Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+};
+
+// Plakadan araç ID'si bul
+const getVehicleIdByPlate = async (plate: string, token: string): Promise<string | null> => {
+  try {
+    const normalized = plate.replace(/\s/g, '').toUpperCase();
+    const res = await api.get(`/Vehicle/by-plate/${normalized}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    });
+    return res.data?.id ?? null;
+  } catch {
+    return null;
+  }
 };
 
 // Araca özel seferleri getir
@@ -75,11 +89,15 @@ export type CreateHaulParams = {
 
 // Yeni sefer oluştur
 export const createHaul = async (params: CreateHaulParams, token: string): Promise<HaulApi> => {
+  const normalizedPlate = params.plateNumber.replace(/\s/g, '').toUpperCase();
+  const vehicleId = await getVehicleIdByPlate(normalizedPlate, token);
+
   const res = await api.post(
     '/Haul',
     {
       jobSiteId: params.jobSiteId,
-      plateNumber: params.plateNumber.replace(/\s/g, '').toUpperCase(),
+      vehicleId: vehicleId ?? undefined,
+      plateNumber: normalizedPlate,
       paymentType: params.paymentType,
       tonage: params.tonage ?? 0,
       cashAmount: params.cashAmount ?? 0,
@@ -134,4 +152,10 @@ export const updateHaulPayment = async (
       },
     },
   );
+};
+
+export const deleteHaul = async (haulId: string, token: string): Promise<void> => {
+  await api.delete(`/Haul/${haulId}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+  });
 };

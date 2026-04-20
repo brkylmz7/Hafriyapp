@@ -23,6 +23,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppSelector } from '../../hooks';
 import { deleteVehicle, getVehicles, updateVehicle, createVehicle, assignDriver, getVehicleDriver, removeDriver } from '../../services/vehicleService';
 import { getHauls, updateHaulPayment, HaulApi } from '../../services/haulService';
+import { getJobSites } from '../../services/jobSiteNewService';
+import RNBlobUtil from 'react-native-blob-util';
 
 const YELLOW = '#FFD500';
 const GRAY = '#F4F4F4';
@@ -44,6 +46,7 @@ type VehicleUI = {
   canDelete: boolean;
   createdDate: string;
   companyName?: string;
+  driverName?: string | null;
 };
 
 
@@ -93,10 +96,11 @@ export default function SupplierVehicles() {
   const [paymentFuel, setPaymentFuel] = useState('');
   const [paymentSaving, setPaymentSaving] = useState(false);
   const [haulFilter, setHaulFilter] = useState('');
-  const [filterYear, setFilterYear] = useState<number | null>(null);
-  const [filterMonth, setFilterMonth] = useState<number | null>(null);
+  const [filterYear, setFilterYear] = useState<number | null>(new Date().getFullYear());
+  const [filterMonth, setFilterMonth] = useState<number | null>(new Date().getMonth() + 1);
   const [yearPickerVisible, setYearPickerVisible] = useState(false);
   const [monthPickerVisible, setMonthPickerVisible] = useState(false);
+  const [excelDownloading, setExcelDownloading] = useState(false);
 
   const token = useAppSelector(state => state.auth.token);
   const user = useAppSelector(state => state.auth.user);
@@ -126,7 +130,7 @@ export default function SupplierVehicles() {
       setSaving(true);
 
       const plateForApi = normalizedPlate(newPlate);
-      console.log('🚀 Creating Vehicle:', plateForApi);
+      console.log('🚀 Creating x:', plateForApi);
 
       // 1. Araç Oluştur
       const res = await createVehicle(plateForApi, companyId, token);
@@ -455,12 +459,25 @@ export default function SupplierVehicles() {
 
       const data = await getVehicles(token); // artık TS mutlu
       const mapped = data.map(mapVehicleFromApi);
-      setVehicles(mapped);
+
+      // Batch-fetch driver names
+      const driverResults = await Promise.all(
+        mapped.map((v: VehicleUI) => getVehicleDriver(v.id, token).catch(() => null))
+      );
+      const mappedWithDrivers: VehicleUI[] = mapped.map((v: VehicleUI, i: number) => {
+        const d = driverResults[i];
+        const driverName = d
+          ? d.displayName || [d.firstName, d.lastName].filter(Boolean).join(' ') || d.phoneNumber || null
+          : null;
+        return { ...v, driverName };
+      });
+
+      setVehicles(mappedWithDrivers);
 
       // Grouping logic
       const grouped: { [key: string]: VehicleUI[] } = {};
 
-      mapped.forEach((vehicle: VehicleUI) => {
+      mappedWithDrivers.forEach((vehicle: VehicleUI) => {
         const key = vehicle.companyName || 'Kendi Araçlarım';
         if (!grouped[key]) {
           grouped[key] = [];
@@ -493,15 +510,56 @@ export default function SupplierVehicles() {
     }
   };
 
+  const downloadFilteredExcel = async () => {
+    if (!token) return;
+    setExcelDownloading(true);
+    try {
+      const year = filterYear ?? new Date().getFullYear();
+      const month = filterMonth ?? new Date().getMonth() + 1;
+      const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+      const lastDay = new Date(year, month, 0).getDate();
+      const endDate = `${year}-${String(month).padStart(2, '0')}-${lastDay}`;
+      const monthLabel = filterMonth ? `${year}_${String(month).padStart(2, '0')}` : String(year);
+      const res = await RNBlobUtil.config({ fileCache: true, appendExt: 'xlsx' })
+        .fetch('GET', `https://api.hafriyapp.com/api/Haul/my/filtered/export?startDate=${startDate}&endDate=${endDate}`, {
+          Authorization: `Bearer ${token}`,
+        });
+      const path = res.path();
+      if (Platform.OS === 'ios') {
+        await RNBlobUtil.ios.openDocument(path);
+      } else {
+        await RNBlobUtil.android.actionViewIntent(
+          path,
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        );
+      }
+    } catch {
+      Alert.alert('Hata', 'Excel dosyası indirilemedi.');
+    } finally {
+      setExcelDownloading(false);
+    }
+  };
+
+  const getHiddenJobSiteIds = async (): Promise<Set<string>> => {
+    try {
+      const jobs = await getJobSites(token!);
+      return new Set(
+        jobs.filter((j: any) => j.isHaulVisibleToVehicleOwners === false).map((j: any) => j.id)
+      );
+    } catch {
+      return new Set();
+    }
+  };
+
   const fetchHauls = async () => {
     if (!token) return;
     try {
       setHaulsLoading(true);
       setHaulsError(null);
-      const data = await getHauls(token);
-      const sorted = [...data].sort(
-        (a, b) => new Date(b.timeOfHaul).getTime() - new Date(a.timeOfHaul).getTime()
-      );
+      const [data, hiddenIds] = await Promise.all([getHauls(token), getHiddenJobSiteIds()]);
+      const sorted = [...data]
+        .filter(h => !hiddenIds.has(h.jobSiteId))
+        .sort((a, b) => new Date(b.timeOfHaul).getTime() - new Date(a.timeOfHaul).getTime());
       setHauls(sorted);
     } catch {
       setHaulsError('Seferler yüklenemedi');
@@ -514,10 +572,10 @@ export default function SupplierVehicles() {
     if (!token) return;
     setHaulsRefreshing(true);
     try {
-      const data = await getHauls(token);
-      const sorted = [...data].sort(
-        (a, b) => new Date(b.timeOfHaul).getTime() - new Date(a.timeOfHaul).getTime()
-      );
+      const [data, hiddenIds] = await Promise.all([getHauls(token), getHiddenJobSiteIds()]);
+      const sorted = [...data]
+        .filter(h => !hiddenIds.has(h.jobSiteId))
+        .sort((a, b) => new Date(b.timeOfHaul).getTime() - new Date(a.timeOfHaul).getTime());
       setHauls(sorted);
       setHaulsError(null);
     } catch {
@@ -578,6 +636,12 @@ export default function SupplierVehicles() {
             <Text style={styles.plateText}>{vehicle.plate}</Text>
           </View>
 
+          {vehicle.driverName ? (
+            <Text style={styles.vehicleDriverName}>{vehicle.driverName}</Text>
+          ) : (
+            <Text style={styles.vehicleNoDriver}>Şoför Atanmamış</Text>
+          )}
+
           <Text style={styles.vehicleDate}>Kayıt: {formatDateDMY(vehicle.createdDate)}</Text>
         </TouchableOpacity>
       ))}
@@ -603,7 +667,7 @@ export default function SupplierVehicles() {
     return `${yy}${mm}${dd}${hh}${mi}${ss}`;
   };
 
-  const TR_MONTHS = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+  const TR_MONTHS = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
 
   // Mevcut haul listesinden benzersiz yılları çıkar
   const availableYears = Array.from(
@@ -718,18 +782,18 @@ export default function SupplierVehicles() {
             <Text style={styles.haulFisBtnText}>👁 Fiş</Text>
           </TouchableOpacity>
 
-          {!paid ? (
+          {!paid && !item.isPrintedReceipt ? (
             <TouchableOpacity
               style={styles.haulApproveBtn}
               onPress={() => openPaymentConfirm(item)}
             >
               <Text style={styles.haulApproveBtnText}>✔ Onayla</Text>
             </TouchableOpacity>
-          ) : (
+          ) : paid ? (
             <View style={styles.haulApprovedTag}>
               <Text style={styles.haulApprovedTagText}>✔ Onaylı</Text>
             </View>
-          )}
+          ) : null}
         </View>
       </View>
     );
@@ -795,33 +859,26 @@ export default function SupplierVehicles() {
       {activeTab === 'trips' && (
         <>
           {/* Özet Çubuğu */}
-          {(() => {
-            const todayStr = new Date().toDateString();
-            const todayCount = hauls.filter(h => new Date(h.timeOfHaul).toDateString() === todayStr).length;
-            return (
-              <View style={styles.summaryBar}>
-                <View style={styles.summaryItem}>
-                  <Text style={[styles.summaryValue, { color: '#E65100' }]}>{todayCount}</Text>
-                  <Text style={styles.summaryLabel}>Bugün</Text>
-                </View>
-                <View style={styles.summaryDivider} />
-                <View style={styles.summaryItem}>
-                  <Text style={styles.summaryValue}>{hauls.length}</Text>
-                  <Text style={styles.summaryLabel}>Toplam</Text>
-                </View>
-                <View style={styles.summaryDivider} />
-                <View style={styles.summaryItem}>
-                  <Text style={[styles.summaryValue, { color: '#2E7D32' }]}>{hauls.filter(h => h.isPaid).length}</Text>
-                  <Text style={styles.summaryLabel}>Ödendi</Text>
-                </View>
-                <View style={styles.summaryDivider} />
-                <View style={styles.summaryItem}>
-                  <Text style={[styles.summaryValue, { color: '#E53935' }]}>{hauls.filter(h => !h.isPaid).length}</Text>
-                  <Text style={styles.summaryLabel}>Bekliyor</Text>
-                </View>
-              </View>
-            );
-          })()}
+          <View style={styles.summaryBar}>
+            <View style={styles.summaryItem}>
+              <Text style={[styles.summaryValue, { color: '#E65100' }]}>{filteredHauls.length}</Text>
+              <Text style={styles.summaryLabel}>Sefer</Text>
+            </View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryItem}>
+              <Text style={[styles.summaryValue, { color: '#2E7D32' }]}>{filteredHauls.filter(h => h.isPaid).length}</Text>
+              <Text style={styles.summaryLabel}>Ödendi</Text>
+            </View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryItem}>
+              <Text style={[styles.summaryValue, { color: '#E53935' }]}>{filteredHauls.filter(h => !h.isPaid).length}</Text>
+              <Text style={styles.summaryLabel}>Bekliyor</Text>
+            </View>
+            <View style={styles.summaryDivider} />
+            <TouchableOpacity style={styles.summaryExcelBtn} onPress={downloadFilteredExcel} disabled={excelDownloading}>
+              <Text style={styles.summaryExcelText}>{excelDownloading ? '⏳' : '⬇ Excel'}</Text>
+            </TouchableOpacity>
+          </View>
 
           {/* Filtre satırı */}
           {!haulsLoading && !haulsError && hauls.length > 0 && (
@@ -853,44 +910,36 @@ export default function SupplierVehicles() {
                   <Text style={[styles.dateFilterBtnText, filterYear !== null && styles.dateFilterBtnTextActive]}>
                     📅 {filterYear !== null ? String(filterYear) : 'Yıl'}
                   </Text>
-                  {filterYear !== null && (
-                    <TouchableOpacity onPress={() => { setFilterYear(null); setFilterMonth(null); }} style={styles.dateFilterClear}>
+                  {filterYear !== new Date().getFullYear() && filterYear !== null && (
+                    <TouchableOpacity onPress={() => { setFilterYear(new Date().getFullYear()); setFilterMonth(new Date().getMonth() + 1); }} style={styles.dateFilterClear}>
                       <Text style={styles.dateFilterClearText}>✕</Text>
                     </TouchableOpacity>
                   )}
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.dateFilterBtn, filterMonth !== null && styles.dateFilterBtnActive, filterYear === null && { opacity: 0.4 }]}
-                  onPress={() => { if (filterYear !== null) setMonthPickerVisible(true); }}
-                  disabled={filterYear === null}
+                  style={[styles.dateFilterBtn, filterMonth !== null && styles.dateFilterBtnActive]}
+                  onPress={() => { if (filterYear !== null) setMonthPickerVisible(true); else setMonthPickerVisible(true); }}
                 >
                   <Text style={[styles.dateFilterBtnText, filterMonth !== null && styles.dateFilterBtnTextActive]}>
                     🗓 {filterMonth !== null ? TR_MONTHS[filterMonth - 1] : 'Ay'}
                   </Text>
-                  {filterMonth !== null && (
-                    <TouchableOpacity onPress={() => setFilterMonth(null)} style={styles.dateFilterClear}>
+                  {filterMonth !== null && filterMonth !== new Date().getMonth() + 1 && (
+                    <TouchableOpacity onPress={() => setFilterMonth(new Date().getMonth() + 1)} style={styles.dateFilterClear}>
                       <Text style={styles.dateFilterClearText}>✕</Text>
                     </TouchableOpacity>
                   )}
                 </TouchableOpacity>
 
-                {(filterYear !== null || filterMonth !== null || haulFilter) && (
+                {haulFilter ? (
                   <TouchableOpacity
                     style={styles.dateFilterResetBtn}
-                    onPress={() => { setFilterYear(null); setFilterMonth(null); setHaulFilter(''); }}
+                    onPress={() => setHaulFilter('')}
                   >
                     <Text style={styles.dateFilterResetText}>Temizle</Text>
                   </TouchableOpacity>
-                )}
+                ) : null}
               </View>
-
-              {/* Filtrelenmiş sonuç sayısı */}
-              {(filterYear !== null || filterMonth !== null || haulFilter) && (
-                <Text style={styles.filterResultText}>
-                  {filteredHauls.length} sefer bulundu
-                </Text>
-              )}
             </>
           )}
 
@@ -1230,7 +1279,7 @@ export default function SupplierVehicles() {
                   >
                     <Text style={styles.receiptCloseBtnNewText}>Kapat</Text>
                   </TouchableOpacity>
-                  {!selectedTrip.isPaid ? (
+                  {!selectedTrip.isPaid && !selectedTrip.isPrintedReceipt ? (
                     <TouchableOpacity
                       style={styles.receiptApproveBtnNew}
                       onPress={() => { setReceiptVisible(false); openPaymentConfirm(selectedTrip); }}
@@ -1559,6 +1608,8 @@ const styles = StyleSheet.create({
   plateText: { fontSize: 16, fontWeight: '800' },
   vehicleInfo: { fontSize: 12, color: '#444' },
   vehicleDate: { fontSize: 11, color: '#999', marginTop: 4 },
+  vehicleDriverName: { fontSize: 12, color: '#444', marginTop: 4 },
+  vehicleNoDriver: { fontSize: 12, color: '#E53E3E', marginTop: 4, fontStyle: 'italic' },
 
   approveBtn: {
     backgroundColor: YELLOW,
@@ -2165,6 +2216,8 @@ const styles = StyleSheet.create({
   summaryValue: { fontSize: 20, fontWeight: '800', color: DARK },
   summaryLabel: { fontSize: 11, color: '#888', marginTop: 2 },
   summaryDivider: { width: 1, height: 36, backgroundColor: '#EEEEEE' },
+  summaryExcelBtn: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  summaryExcelText: { fontSize: 12, fontWeight: '700', color: '#2E7D32' },
 
   // Haul / Trips stiller (legacy — kept for compatibility)
   haulSummaryRow: {

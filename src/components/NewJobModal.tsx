@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { createJobSite, updateJobSite } from '../services/jobSiteNewService';
+import { createJobSite, updateJobSite, getHaulsVisibility } from '../services/jobSiteNewService';
 import {
   View,
   Text,
@@ -137,7 +137,13 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
       setStartTime(initialJob.loadingStartTime || '');
       setEndTime(initialJob.loadingEndTime || '');
       setIsActive(initialJob.isActive !== false);
-      setShowHaulsToVehicleOwners(initialJob.showHaulsToVehicleOwners !== false);
+      // API bu alanı henüz dönmüyor, AsyncStorage'dan oku
+      getHaulsVisibility(initialJob.id).then(cached => {
+        const apiValue = initialJob.isHaulVisibleToVehicleOwners ?? initialJob.showHaulsToVehicleOwners;
+        const value = apiValue !== undefined ? apiValue : (cached !== undefined ? cached : true);
+        console.log('[NewJobModal] edit open - id:', initialJob.id, '| apiValue:', apiValue, '| cached:', cached, '| final:', value);
+        setShowHaulsToVehicleOwners(value);
+      });
 
       const isKum = initialJob.jobType === 1;
       setJobCategory(isKum ? 'KUM_MICIR' : 'HAFRIYAT');
@@ -431,6 +437,7 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
             IsActive: isActive,
             ShowHaulsToVehicleOwners: showHaulsToVehicleOwners,
           };
+          console.log('[NewJobModal] CREATE payload:', JSON.stringify(createPayload, null, 2));
           await createJobSite(token, createPayload);
           Alert.alert('Başarılı', 'İş ilanı başarıyla oluşturuldu.', [
             { text: 'Tamam', onPress: () => onClose(true) },

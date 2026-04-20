@@ -4,7 +4,13 @@
       "Bash(npx tsc:*)",
       "Bash(node_modules/.bin/tsc --noEmit)",
       "Bash(echo \"exit: $?\")",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(grep -E \"\\\\.\\(cs|cshtml\\)$\")",
+      "Bash(dotnet tool install *)",
+      "Bash(export PATH=\"$PATH:/Users/anadoluefes/.dotnet/tools\")",
+      "Bash(dotnet ef *)",
+      "Bash(xargs rm *)",
+      "Bash(dotnet restore *)"
     ]
   }
 }

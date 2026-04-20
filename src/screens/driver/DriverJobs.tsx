@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAppSelector } from '../../hooks';
 import { getHauls, getHaulsFiltered, updateHaulPayment, HaulApi } from '../../services/haulService';
+import { getJobSites } from '../../services/jobSiteNewService';
 import { getVehicles, driverAddVehicle, driverLeaveVehicle } from '../../services/vehicleService';
 
 const YELLOW = '#FFD500';
@@ -112,10 +113,18 @@ export default function DriverJobs() {
     if (!silent) setLoading(true);
     try {
       const range = getDateRange(f);
-      const data = range
-        ? await getHaulsFiltered(token, range.start, range.end)
-        : await getHauls(token);
-      setHauls([...data].sort((a, b) => new Date(b.timeOfHaul).getTime() - new Date(a.timeOfHaul).getTime()));
+      const [data, jobs] = await Promise.all([
+        range ? getHaulsFiltered(token, range.start, range.end) : getHauls(token),
+        getJobSites(token).catch(() => []),
+      ]);
+      const hiddenIds = new Set(
+        jobs.filter((j: any) => j.isHaulVisibleToVehicleOwners === false).map((j: any) => j.id)
+      );
+      setHauls(
+        [...data]
+          .filter(h => !hiddenIds.has(h.jobSiteId))
+          .sort((a, b) => new Date(b.timeOfHaul).getTime() - new Date(a.timeOfHaul).getTime())
+      );
     } catch {
       Alert.alert('Hata', 'Seferler yüklenemedi.');
     } finally {
@@ -369,7 +378,7 @@ export default function DriverJobs() {
               <TouchableOpacity style={styles.receiptBtn} onPress={() => setReceiptItem(item)}>
                 <Text style={styles.receiptBtnText}>📄 Fiş</Text>
               </TouchableOpacity>
-              {!item.isPaid && (
+              {!item.isPaid && !item.isPrintedReceipt && (
                 <TouchableOpacity
                   style={styles.approveBtn}
                   onPress={() => handleApprove(item)}
@@ -463,7 +472,7 @@ export default function DriverJobs() {
               </View>
             )}
 
-            {!item.isPaid && (
+            {!item.isPaid && !item.isPrintedReceipt && (
               <TouchableOpacity
                 style={rm.approveBtn}
                 onPress={() => handleApprove(item)}
