@@ -31,11 +31,12 @@ export const updateVehicle = async (
 export const createVehicle = async (
   plateNumber: string,
   companyId: string,
+  driverPhoneNumber: string,
   token: string,
 ) => {
   const res = await api.post(
     '/Vehicle',
-    { plateNumber, companyId },
+    { plateNumber, companyId, driverPhoneNumber },
     { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'text/plain' } },
   );
   return res.data;

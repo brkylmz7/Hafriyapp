@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Modal, ScrollView, Image } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { launchImageLibrary } from 'react-native-image-picker';
+import { HubConnectionBuilder, HubConnection, LogLevel, HttpTransportType } from '@microsoft/signalr';
 import { useAppSelector } from '../../hooks';
 import {
   getGroupMessages, sendMessage as sendMsgComp,
@@ -10,6 +11,8 @@ import {
   deleteGroup as deleteChatGroup, getBlockedPhones,
   addBlockedPhone, removeBlockedPhone,
 } from '../../services/chatService';
+
+const HUB_URL = 'https://api.hafriyapp.com/hubs/chat';
 
 const YELLOW = '#FFD500';
 const IMAGE_BASE = 'https://api.hafriyapp.com';
@@ -34,6 +37,11 @@ export default function CompanyChat() {
   const [sending, setSending] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
   const token = useAppSelector(state => state.auth.token);
+  const currentUserId = useAppSelector(state => state.auth.user?.id);
+
+  const connectionRef = useRef<HubConnection | null>(null);
+  const seenIdsRef = useRef<Set<string>>(new Set());
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   /* ─── SETTINGS ─── */
   const [isOwner, setIsOwner] = useState(false);
@@ -49,12 +57,101 @@ export default function CompanyChat() {
   const [blockingPhone, setBlockingPhone] = useState(false);
   const [groupDeleting, setGroupDeleting] = useState(false);
 
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  }, []);
+
+  const startPolling = useCallback(() => {
+    if (pollingRef.current) return;
+    pollingRef.current = setInterval(async () => {
+      if (!token || !groupId) return;
+      try {
+        const res = await getGroupMessages(token, groupId);
+        if (res?.data?.messages) {
+          const incoming: any[] = res.data.messages.reverse();
+          setMessages(prev => {
+            const existingIds = new Set(prev.filter(m => !m.isTemp).map(m => m.id));
+            const newOnes = incoming.filter(m => !existingIds.has(m.id));
+            if (!newOnes.length) return prev;
+            const withoutTemp = prev.filter(m => !m.isTemp);
+            return [...newOnes.reverse(), ...withoutTemp];
+          });
+        }
+      } catch {}
+    }, 3000);
+  }, [token, groupId]);
+
+  const disconnectSignalR = useCallback(async () => {
+    stopPolling();
+    if (connectionRef.current) {
+      try { await connectionRef.current.stop(); } catch {}
+      connectionRef.current = null;
+    }
+  }, [stopPolling]);
+
+  const connectSignalR = useCallback(async () => {
+    if (!groupId) return;
+    await disconnectSignalR();
+    seenIdsRef.current = new Set();
+
+    try {
+      const connection = new HubConnectionBuilder()
+        .withUrl(HUB_URL, {
+          skipNegotiation: true,
+          transport: HttpTransportType.WebSockets,
+        })
+        .withAutomaticReconnect()
+        .configureLogging(LogLevel.Warning)
+        .build();
+
+      connection.on('ReceiveGroupMessage', (message: any) => {
+        const id = String(message.id);
+        if (seenIdsRef.current.has(id)) return;
+        seenIdsRef.current.add(id);
+
+        const isOwn = message.senderId === currentUserId;
+        const incoming = { ...message, isOwnMessage: isOwn };
+
+        setMessages(prev => {
+          if (isOwn) {
+            const tempIdx = prev.findIndex(m => m.isTemp && m.content === message.content);
+            if (tempIdx !== -1) {
+              const updated = [...prev];
+              updated[tempIdx] = incoming;
+              return updated;
+            }
+          }
+          return [incoming, ...prev];
+        });
+      });
+
+      connection.on('MessageDeleted', (messageId: string) => {
+        setMessages(prev =>
+          prev.map(m => m.id === messageId ? { ...m, content: 'Bu mesaj silindi', deleted: true } : m)
+        );
+      });
+
+      await connection.start();
+      await connection.invoke('JoinChatGroup', groupId);
+      connectionRef.current = connection;
+    } catch (err) {
+      console.log('[SignalR] bağlantı kurulamadı, polling başlıyor', err);
+      startPolling();
+    }
+  }, [groupId, currentUserId, disconnectSignalR, startPolling]);
+
   // groupId değişince mesajları temizle ve yeniden yükle (farklı gruba geçişte eski mesajlar görünmesin)
   useEffect(() => {
     setMessages([]);
     setIsOwner(false);
+    seenIdsRef.current = new Set();
     fetchMessages();
     checkOwnership();
+    connectSignalR();
+    return () => { disconnectSignalR(); };
   }, [groupId]);
 
   const checkOwnership = async () => {
@@ -178,8 +275,10 @@ export default function CompanyChat() {
     setLoading(true);
     try {
       const res = await getGroupMessages(token, groupId);
-      if (res && res.data && res.data.messages) {
-        setMessages(res.data.messages.reverse());
+      if (res?.data?.messages) {
+        const msgs: any[] = res.data.messages.reverse();
+        msgs.forEach(m => seenIdsRef.current.add(String(m.id)));
+        setMessages(msgs);
       }
     } catch (error) {
       console.log('Error fetching messages', error);
@@ -201,23 +300,25 @@ export default function CompanyChat() {
     // Bu durumda array: [Eski, ..., Yeni] olmalı.
     // sendMessage ile sona ekleriz: [...prev, newMessage]
 
-    const tempId = Date.now().toString();
-    const newMessage = {
+    const tempId = `temp_${Date.now()}`;
+    const tempMessage = {
       id: tempId,
       content,
       isOwnMessage: true,
-      sentAt: new Date().toISOString()
+      isTemp: true,
+      sentAt: new Date().toISOString(),
     };
 
-    setMessages(prev => [newMessage, ...prev]);
+    setMessages(prev => [tempMessage, ...prev]);
     setSending(true);
 
     try {
       if (!token) throw new Error('Oturum açık değil');
       await sendMsgComp(token, groupId, content);
+      // SignalR teslim edecek, temp mesaj orada replace edilecek.
+      // Polling modundaysa temp'i koru — polling sonucu güncelleyecek.
     } catch (error) {
       Alert.alert('Hata', 'Mesaj gönderilemedi, tekrar deneyiniz.');
-      // Hata durumunda geri al
       setMessages(prev => prev.filter(m => m.id !== tempId));
       setText(content);
     } finally {
@@ -227,16 +328,28 @@ export default function CompanyChat() {
 
   const renderItem = ({ item }: any) => {
     const isMyMessage = item.isOwnMessage;
+    const isDeleted = !!item.deleted;
+    const isTemp = !!item.isTemp;
     return (
       <View style={[styles.bubbleContainer, isMyMessage ? styles.myContainer : styles.theirContainer]}>
         {!isMyMessage && item.senderName && (
           <Text style={styles.senderName}>{item.senderName}</Text>
         )}
-        <View style={[styles.bubble, isMyMessage ? styles.myBubble : styles.theirBubble]}>
-          <Text style={styles.bubbleText}>{item.content}</Text>
-          <Text style={styles.timeText}>
-            {new Date(item.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        <View style={[
+          styles.bubble,
+          isMyMessage ? styles.myBubble : styles.theirBubble,
+          isDeleted && styles.deletedBubble,
+          isTemp && styles.tempBubble,
+        ]}>
+          <Text style={[styles.bubbleText, isDeleted && styles.deletedText]}>
+            {isDeleted ? 'Bu mesaj silindi' : item.content}
           </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', marginTop: 4, gap: 4 }}>
+            {isTemp && <Text style={styles.sendingDot}>⏳</Text>}
+            <Text style={styles.timeText}>
+              {new Date(item.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </Text>
+          </View>
         </View>
       </View>
     );
@@ -540,8 +653,21 @@ const styles = StyleSheet.create({
   timeText: {
     fontSize: 10,
     color: '#555',
-    alignSelf: 'flex-end',
-    marginTop: 4,
+  },
+  deletedBubble: {
+    backgroundColor: '#F0F0F0',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  deletedText: {
+    color: '#aaa',
+    fontStyle: 'italic',
+  },
+  tempBubble: {
+    opacity: 0.7,
+  },
+  sendingDot: {
+    fontSize: 9,
   },
   inputRow: {
     flexDirection: 'row',

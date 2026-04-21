@@ -10,7 +10,8 @@
       "Bash(export PATH=\"$PATH:/Users/anadoluefes/.dotnet/tools\")",
       "Bash(dotnet ef *)",
       "Bash(xargs rm *)",
-      "Bash(dotnet restore *)"
+      "Bash(dotnet restore *)",
+      "Bash(npm install *)"
     ]
   }
 }

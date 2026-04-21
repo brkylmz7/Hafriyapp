@@ -106,73 +106,43 @@ export default function SupplierVehicles() {
   const user = useAppSelector(state => state.auth.user);
   const companyId = useAppSelector(state => state.auth.companyId) || user?.companyId;
 
+  const normalizePhoneNumber = (phone: string): string => {
+    const digits = phone.replace(/\D/g, '');
+    if (digits.startsWith('90') && digits.length === 12) return '+' + digits;
+    if (digits.startsWith('0') && digits.length === 11) return '+90' + digits.substring(1);
+    if (digits.startsWith('5') && digits.length === 10) return '+90' + digits;
+    if (digits.length === 10) return '+90' + digits;
+    return '+' + digits;
+  };
+
   const handleCreateVehicle = async () => {
     if (!token || !companyId) {
       Alert.alert("Hata", "Firma bilgisi eksik. Lütfen tekrar giriş yapın.");
       return;
     }
-
-    // Basit validasyon
     if (!newPlate) {
       Alert.alert("Eksik Bilgi", "Lütfen plaka giriniz.");
       return;
     }
-
-    // Şoför telefonu girildiyse format kontrolü (opsiyonel ama iyi olur)
-    // newDriverPhone '0555 555 55 55' gibi gelebilir, formatPhone ile boşluklu oluyor.
-    // Servis "05392152832" gibi bekliyor mu yoksa boşluklu mu?
-    // User örneği: "05392152832". Formatlı stringi temizlemek lazım.
-    const cleanPhone = newDriverPhone.replace(/\D/g, '');
-    // Ancak sadece numara girildiyse ve assign-driver servisi çağrılacaksa.
-    // newDriverPhone boş değilse çağır.
+    const rawPhone = newDriverPhone.replace(/\D/g, '');
+    if (!rawPhone || rawPhone.length < 10) {
+      Alert.alert("Eksik Bilgi", "Lütfen şoför telefon numarasını giriniz.");
+      return;
+    }
 
     try {
       setSaving(true);
-
       const plateForApi = normalizedPlate(newPlate);
-      console.log('🚀 Creating x:', plateForApi);
+      const driverPhoneNumber = normalizePhoneNumber(rawPhone);
 
-      // 1. Araç Oluştur
-      const res = await createVehicle(plateForApi, companyId, token);
+      await createVehicle(plateForApi, companyId, driverPhoneNumber, token);
 
-      // Response ID kontrolü
-      // User text/plain dedi, belki ID string olarak döner.
-      // Eger res bir obje ise ve id property'si varsa onu al.
-      // Yoksa res kendisi ID olabilir.
-      let newVehicleId = '';
-      if (typeof res === 'object' && res?.id) {
-        newVehicleId = res.id;
-      } else if (typeof res === 'string') {
-        newVehicleId = res;
-      } else if (res?.data?.id) {
-        newVehicleId = res.data.id;
-      }
-
-      console.log('✨ Created ID:', newVehicleId);
-
-      // 2. Şoför Ata (Eğer numara varsa)
-      if (cleanPhone && cleanPhone.length >= 10 && newVehicleId) {
-        try {
-          await assignDriver(newVehicleId, cleanPhone, token);
-          console.log('✨ Driver Assigned');
-          Alert.alert("Başarılı", "Araç ve şoför başarıyla eklendi.");
-        } catch (driverError: any) {
-          console.log('⚠️ Driver assign failed:', driverError);
-          const driverErrorMsg = driverError.response?.data?.message || "Araç eklendi fakat şoför atanamadı.";
-          Alert.alert("Uyarı", `Araç oluşturuldu ancak: ${driverErrorMsg}`);
-        }
-      } else {
-        Alert.alert("Başarılı", "Araç başarıyla eklendi.");
-      }
-
-      // 3. Temizlik ve Refresh (Her durumda)
+      Alert.alert("Başarılı", "Araç ve şoför başarıyla eklendi.");
       setAddVehicleModal(false);
       setNewPlate('');
       setNewDriverPhone('');
       fetchVehicles();
-
     } catch (error: any) {
-      console.log('Vehicle create failed:', error);
       const errorMsg = error.response?.data?.message || "Araç eklenirken bir sorun oluştu.";
       Alert.alert("Hata", errorMsg);
     } finally {
@@ -1444,9 +1414,9 @@ export default function SupplierVehicles() {
                     <TouchableOpacity
                       style={[
                         styles.saveBigBtn,
-                        (!newPlate || newDriverPhone.replace(/\D/g, '').length !== 11) && { opacity: 0.5 },
+                        (!newPlate || newDriverPhone.replace(/\D/g, '').length < 10) && { opacity: 0.5 },
                       ]}
-                      disabled={!newPlate || newDriverPhone.replace(/\D/g, '').length !== 11 || saving}
+                      disabled={!newPlate || newDriverPhone.replace(/\D/g, '').length < 10 || saving}
                       onPress={handleCreateVehicle}
                     >
                       <Text style={styles.saveBigText}>✔ Aracı Kaydet</Text>
