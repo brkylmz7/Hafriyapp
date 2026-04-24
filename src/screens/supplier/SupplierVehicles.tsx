@@ -80,6 +80,7 @@ export default function SupplierVehicles() {
   } | null>(null); // null olursa şoför yok
 
   const [driverRemoved, setDriverRemoved] = useState(false);
+  const [driverFetching, setDriverFetching] = useState(false);
 
   const [receiptVisible, setReceiptVisible] = useState(false);
   const [selectedTrip, setSelectedTrip] = useState<HaulApi | null>(null);
@@ -281,8 +282,31 @@ export default function SupplierVehicles() {
     }
   };
 
+  const driverMissing = !driverFetching && driver === null && newDriverPhone.replace(/\D/g, '').length < 10;
+
+  const handleCloseVehicleModal = () => {
+    if (driverMissing) {
+      Alert.alert(
+        'Şoför Numarası Gerekli',
+        'Şoför numarası boş geçilemez. Şoför yoksa kendi numaranızı yazın.',
+        [{ text: 'Tamam' }]
+      );
+      return;
+    }
+    Keyboard.dismiss();
+    setVehicleModal(false);
+  };
+
   const handleUpdatePlate = async () => {
     if (!token || !selectedVehicle?.id) return;
+
+    if (driverMissing) {
+      Alert.alert(
+        'Şoför Numarası Gerekli',
+        'Şoför numarası boş geçilemez. Şoför yoksa kendi numaranızı yazın.'
+      );
+      return;
+    }
 
     try {
       setSaving(true);
@@ -320,14 +344,17 @@ export default function SupplierVehicles() {
     setPlate(item.plate);
     setDriverRemoved(false);
     setVehicleModal(true);
-    setDriver(null); // Önce boşalt, yükleniyor durumu için
+    setDriver(null);
+    setDriverFetching(true);
 
-    if (!token) return;
+    if (!token) {
+      setDriverFetching(false);
+      return;
+    }
 
     try {
       const driverData = await getVehicleDriver(item.id, token);
       if (driverData) {
-        // API: { id, userId, phoneNumber, displayName, firstName, lastName }
         const displayName =
           driverData.displayName ||
           [driverData.firstName, driverData.lastName].filter(Boolean).join(' ') ||
@@ -343,8 +370,9 @@ export default function SupplierVehicles() {
       }
     } catch (err) {
       console.log('Driver fetch error:', err);
-      // Hata olsa da driver null kalır, manuel ekleme yapılabilir
       setDriver(null);
+    } finally {
+      setDriverFetching(false);
     }
   };
 
@@ -371,9 +399,11 @@ export default function SupplierVehicles() {
 
   const openPaymentConfirm = (item: HaulApi) => {
     setPaymentHaul(item);
-    setPaymentType(item.paymentType === 1 ? 1 : 0);
-    setPaymentCash(item.cashAmount > 0 ? String(item.cashAmount) : '');
-    setPaymentFuel(item.fuelAmount > 0 ? String(item.fuelAmount) : '');
+    const hasCash = (item.cashAmount ?? 0) > 0;
+    const hasFuel = (item.fuelAmount ?? 0) > 0;
+    setPaymentType(!hasCash && hasFuel ? 1 : 0);
+    setPaymentCash(hasCash ? String(item.cashAmount) : '');
+    setPaymentFuel(hasFuel ? String(item.fuelAmount) : '');
     setConfirmPaymentModal(true);
   };
 
@@ -644,6 +674,14 @@ export default function SupplierVehicles() {
     new Set(hauls.map(h => new Date(h.timeOfHaul).getFullYear()))
   ).sort((a, b) => b - a);
 
+  const isToday = (iso: string) => {
+    const d = new Date(iso);
+    const now = new Date();
+    return d.getDate() === now.getDate() &&
+      d.getMonth() === now.getMonth() &&
+      d.getFullYear() === now.getFullYear();
+  };
+
   // Aktif filtreye göre gösterilecek sefer listesi
   const filteredHauls = hauls.filter(h => {
     const d = new Date(h.timeOfHaul);
@@ -661,13 +699,7 @@ export default function SupplierVehicles() {
     return true;
   });
 
-  const isToday = (iso: string) => {
-    const d = new Date(iso);
-    const now = new Date();
-    return d.getDate() === now.getDate() &&
-      d.getMonth() === now.getMonth() &&
-      d.getFullYear() === now.getFullYear();
-  };
+  const todayInFiltered = filteredHauls.filter(h => isToday(h.timeOfHaul)).length;
 
   const renderTrip = ({ item }: { item: HaulApi }) => {
     const today = isToday(item.timeOfHaul);
@@ -741,11 +773,6 @@ export default function SupplierVehicles() {
           ) : null}
         </View>
 
-        {/* Not */}
-        {item.note ? (
-          <Text style={styles.haulNoteText} numberOfLines={1}>💬 {item.note}</Text>
-        ) : null}
-
         {/* Alt Butonlar */}
         <View style={styles.haulCardActions}>
           <TouchableOpacity style={styles.haulFisBtn} onPress={() => openReceipt(item)}>
@@ -792,7 +819,7 @@ export default function SupplierVehicles() {
             onPress={() => setActiveTab('trips')}
           >
             <Text style={activeTab === 'trips' ? styles.tabTextActive : styles.tabText}>
-              Seferler ({hauls.length})
+              Seferler ({filteredHauls.length})
             </Text>
           </TouchableOpacity>
         </View>
@@ -831,8 +858,8 @@ export default function SupplierVehicles() {
           {/* Özet Çubuğu */}
           <View style={styles.summaryBar}>
             <View style={styles.summaryItem}>
-              <Text style={[styles.summaryValue, { color: '#E65100' }]}>{filteredHauls.length}</Text>
-              <Text style={styles.summaryLabel}>Sefer</Text>
+              <Text style={[styles.summaryValue, { color: '#E65100' }]}>{todayInFiltered}</Text>
+              <Text style={styles.summaryLabel}>Bugün</Text>
             </View>
             <View style={styles.summaryDivider} />
             <View style={styles.summaryItem}>
@@ -955,7 +982,7 @@ export default function SupplierVehicles() {
       )}
 
       {/* ================= VEHICLE DETAIL MODAL ================= */}
-      <Modal visible={vehicleModal} transparent animationType="fade">
+      <Modal visible={vehicleModal} transparent animationType="fade" onRequestClose={handleCloseVehicleModal}>
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.modalOverlay}>
             <KeyboardAvoidingView
@@ -972,10 +999,7 @@ export default function SupplierVehicles() {
                     <Text style={styles.editTitle}>🚚 Araç Düzenle</Text>
 
                     <Pressable
-                      onPress={() => {
-                        Keyboard.dismiss();
-                        setVehicleModal(false);
-                      }}
+                      onPress={handleCloseVehicleModal}
                     >
                       <Text style={styles.closeX}>✕</Text>
                     </Pressable>
@@ -1300,16 +1324,18 @@ export default function SupplierVehicles() {
                 <Text style={styles.label}>Ödeme Türü</Text>
                 <View style={styles.payTypeRow}>
                   <TouchableOpacity
-                    style={[styles.payTypeBtn, paymentType === 0 && styles.payTypeActive]}
+                    style={[styles.payTypeBtn, paymentType === 0 && styles.payTypeActive, !(paymentHaul?.cashAmount > 0) && { opacity: 0.35 }]}
                     onPress={() => setPaymentType(0)}
+                    disabled={!(paymentHaul?.cashAmount > 0)}
                   >
                     <Text style={[styles.payTypeText, paymentType === 0 && styles.payTypeTextActive]}>
                       💵 Nakit (₺)
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.payTypeBtn, paymentType === 1 && styles.payTypeActive]}
+                    style={[styles.payTypeBtn, paymentType === 1 && styles.payTypeActive, !(paymentHaul?.fuelAmount > 0) && { opacity: 0.35 }]}
                     onPress={() => setPaymentType(1)}
+                    disabled={!(paymentHaul?.fuelAmount > 0)}
                   >
                     <Text style={[styles.payTypeText, paymentType === 1 && styles.payTypeTextActive]}>
                       ⛽ Yakıt (Lt)
@@ -1322,10 +1348,8 @@ export default function SupplierVehicles() {
                     <Text style={styles.label}>Nakit Tutar (₺)</Text>
                     <TextInput
                       value={paymentCash}
-                      onChangeText={setPaymentCash}
-                      style={styles.plateInput}
-                      keyboardType="decimal-pad"
-                      placeholder="0.00"
+                      editable={false}
+                      style={[styles.plateInput, styles.inputReadonly]}
                     />
                   </>
                 ) : (
@@ -1333,10 +1357,8 @@ export default function SupplierVehicles() {
                     <Text style={styles.label}>Yakıt Miktarı (Litre)</Text>
                     <TextInput
                       value={paymentFuel}
-                      onChangeText={setPaymentFuel}
-                      style={styles.plateInput}
-                      keyboardType="decimal-pad"
-                      placeholder="0.00"
+                      editable={false}
+                      style={[styles.plateInput, styles.inputReadonly]}
                     />
                   </>
                 )}
@@ -2056,6 +2078,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
     letterSpacing: 1,
+  },
+  inputReadonly: {
+    backgroundColor: '#F0F0F0', borderColor: '#e0e0e0', color: '#555',
   },
   headerRow: {
     flexDirection: 'row',

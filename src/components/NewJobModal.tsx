@@ -45,6 +45,7 @@ type AppInputProps = Omit<TextInputProps, 'onChangeText'> & {
   height?: number;
   onChangeText: (text: string) => void;
   placeholder?: string;
+  error?: string;
 };
 
 type CardProps = {
@@ -569,6 +570,7 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
             placeholder="Kısa tabela açıklaması (max 100 karakter)"
             value={signDescription}
             onChangeText={setSignDescription}
+            error={signDescription.length > 100 ? `Tabela açıklaması 100 karakterden fazla olamaz (${signDescription.length}/100)` : undefined}
           />
 
           <AppInput
@@ -774,9 +776,9 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
           <Text>Vazgeç</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.saveBtn, !isDirty && { backgroundColor: '#ccc' }]}
+          style={[styles.saveBtn, (!isDirty || signDescription.length > 100) && { backgroundColor: '#ccc' }]}
           onPress={handleSave}
-          disabled={!isDirty}
+          disabled={!isDirty || signDescription.length > 100}
         >
           <Text style={{ fontWeight: '800' }}>{initialJob ? 'Güncelle' : 'Kaydet'}</Text>
         </TouchableOpacity>
@@ -836,6 +838,7 @@ const AppInput = ({
   height,
   onChangeText,
   placeholder,
+  error,
   ...props
 }: AppInputProps) => (
   <View style={{ flex: flex ? 1 : undefined }}>
@@ -848,8 +851,10 @@ const AppInput = ({
       style={[
         styles.input,
         height ? { height, textAlignVertical: 'top', paddingTop: 12 } : undefined,
+        error ? { borderColor: '#D32F2F', borderWidth: 1.5, backgroundColor: '#FFF5F5' } : undefined,
       ]}
     />
+    {!!error && <Text style={styles.inputError}>{error}</Text>}
   </View>
 );
 
@@ -899,6 +904,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
+  },
+  inputError: {
+    color: '#D32F2F', fontSize: 12, marginTop: -8, marginBottom: 8, marginLeft: 4,
   },
 
   row: { flexDirection: 'row', gap: 10 },

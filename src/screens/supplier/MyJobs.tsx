@@ -109,9 +109,13 @@ export default function MyJobs() {
             ).length;
 
             const paidHauls = hauls.filter((h: any) => h.isPaid);
-            paidFuelTotal = paidHauls.reduce((s: number, h: any) => s + (h.fuelAmount ?? 0), 0);
-            const totalCash = paidHauls.reduce((s: number, h: any) => s + (h.cashAmount ?? 0), 0);
-            const totalTon = paidHauls.reduce((s: number, h: any) => s + (h.tonage ?? 0), 0) / 1000;
+            paidFuelTotal = paidHauls
+              .filter((h: any) => h.paymentType === 1 || h.paymentType === 2)
+              .reduce((s: number, h: any) => s + (h.fuelAmount ?? 0), 0);
+            const totalCash = paidHauls
+              .filter((h: any) => h.paymentType === 0 || h.paymentType === 2)
+              .reduce((s: number, h: any) => s + (h.cashAmount ?? 0), 0);
+            const totalTon = hauls.reduce((s: number, h: any) => s + (h.tonage ?? 0), 0) / 1000;
 
             fuelGiven = `${paidFuelTotal.toFixed(0)} lt`;
             cashGiven = `${totalCash.toFixed(0)}₺`;
@@ -127,7 +131,7 @@ export default function MyJobs() {
             total,
             paid,
             unpaid,
-            fuelLeft: `${Math.max(0, (item.fuelStock ?? 0) - paidFuelTotal).toFixed(0)} lt`,
+            fuelLeft: `${(item.fuelStock ?? 0)} lt`,
             fuelGiven,
             cashGiven,
             totalTonage,

@@ -7,7 +7,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useAppSelector, useAppDispatch } from '../../hooks';
-import { getJobHauls, deleteJobSite, updateJobSite } from '../../services/jobSiteNewService';
+import { getJobHauls, getJobSite, deleteJobSite, updateJobSite } from '../../services/jobSiteNewService';
 import RNBlobUtil from 'react-native-blob-util';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NewJobModal from '../../components/NewJobModal';
@@ -189,6 +189,7 @@ export default function JobDetails() {
   const [fuelModal, setFuelModal] = useState(false);
   const [fuelInput, setFuelInput] = useState('');
   const [fuelSaving, setFuelSaving] = useState(false);
+  const [fuelStock, setFuelStock] = useState<number>(job?.fuelStock ?? 0);
 
   // ── Ödeme Onay modal
   const [paymentModal, setPaymentModal] = useState(false);
@@ -201,12 +202,21 @@ export default function JobDetails() {
   const pendingForThisJob = pendingQueue.filter(h => h.jobSiteId === job?.id);
   const offers = getOffersFromJob(job);
 
+  // ── Güncel fuelStock'u API'dan çek
+  const fetchFuelStock = async () => {
+    if (!token || !job?.id) return;
+    try {
+      const data = await getJobSite(token, job.id);
+      if (data?.fuelStock != null) setFuelStock(data.fuelStock);
+    } catch { }
+  };
+
   // ── Seferleri yükle
   const fetchHauls = async () => {
     if (!token || !job?.id) return;
     try {
       setLoading(true);
-      const data = await getJobHauls(token, job.id);
+      const [data] = await Promise.all([getJobHauls(token, job.id), fetchFuelStock()]);
       setHauls(data);
     } catch (error) {
       console.log('Error fetching hauls:', error);
@@ -220,7 +230,7 @@ export default function JobDetails() {
     if (!token || !job?.id) return;
     setRefreshing(true);
     try {
-      const data = await getJobHauls(token, job.id);
+      const [data] = await Promise.all([getJobHauls(token, job.id), fetchFuelStock()]);
       setHauls(data);
     } catch (error) {
       console.log('Refresh error:', error);
@@ -452,9 +462,11 @@ export default function JobDetails() {
   // ── Ödeme onay modal aç
   const openPaymentConfirm = (item: HaulApi) => {
     setPaymentHaul(item);
-    setPaymentType(item.paymentType === 1 ? 1 : 0);
-    setPaymentCash(item.cashAmount > 0 ? String(item.cashAmount) : '');
-    setPaymentFuel(item.fuelAmount > 0 ? String(item.fuelAmount) : '');
+    const hasCash = (item.cashAmount ?? 0) > 0;
+    const hasFuel = (item.fuelAmount ?? 0) > 0;
+    setPaymentType(!hasCash && hasFuel ? 1 : 0);
+    setPaymentCash(hasCash ? String(item.cashAmount) : '');
+    setPaymentFuel(hasFuel ? String(item.fuelAmount) : '');
     setPaymentModal(true);
   };
 
@@ -502,8 +514,8 @@ export default function JobDetails() {
       `Plaka   : ${haul.plateNumber}`,
       `Döküm   : ${haul.dumpLocation || '-'}`,
       haul.tonage > 0 ? `Tonaj   : ${haul.tonage.toFixed(2)} Ton` : '',
-      haul.cashAmount > 0 ? `Nakit   : ${haul.cashAmount.toLocaleString('tr-TR')} TL` : '',
-      haul.fuelAmount > 0 ? `Yakıt   : ${haul.fuelAmount.toLocaleString('tr-TR')} Lt` : '',
+      (haul.paymentType === 0 || haul.paymentType === 2) && haul.cashAmount > 0 ? `Nakit   : ${haul.cashAmount.toLocaleString('tr-TR')} TL` : '',
+      (haul.paymentType === 1 || haul.paymentType === 2) && haul.fuelAmount > 0 ? `Yakıt   : ${haul.fuelAmount.toLocaleString('tr-TR')} Lt` : '',
       `━━━━━━━━━━━━━━━━━━━━`,
     ].filter(Boolean).join('\n');
     try {
@@ -600,7 +612,7 @@ export default function JobDetails() {
     if (!amount || amount <= 0) { Alert.alert('Hata', 'Geçerli bir miktar giriniz.'); return; }
     setFuelSaving(true);
     try {
-      const currentStock = job.fuelStock ?? 0;
+      const currentStock = fuelStock;
       await updateJobSite(token, job.id, {
         companyId: job.companyId,
         name: job.name,
@@ -629,6 +641,7 @@ export default function JobDetails() {
         loadingEndTime: job.loadingEndTime ?? '',
         isActive: job.isActive,
       });
+      setFuelStock(currentStock + amount);
       setFuelModal(false);
       setFuelInput('');
       Alert.alert('Başarılı', `${amount} litre yakıt eklendi.`);
@@ -689,8 +702,7 @@ export default function JobDetails() {
     const todayCount = hauls.filter(h => new Date(h.timeOfHaul).toDateString() === todayStr).length
       + pendingForThisJob.filter(h => new Date(h.timeOfHaul).toDateString() === todayStr).length;
     const totalTonKg = hauls.reduce((a, h) => a + (h.tonage || 0), 0);
-    const paidFuel = hauls.filter(h => h.isPaid).reduce((a, h) => a + (h.fuelAmount || 0), 0);
-    const remainingFuel = (job?.fuelStock ?? 0) - paidFuel;
+    const remainingFuel = fuelStock;
     const totalTonDisplay = isKum
       ? `${(totalTonKg / 1000).toFixed(1)}t`
       : `${remainingFuel.toFixed(0)}lt`;
@@ -803,14 +815,18 @@ export default function JobDetails() {
                 {isKum ? `${item.tonage.toLocaleString('tr-TR')} kg` : `${(item.tonage / 1000).toFixed(2)} t`}
               </Text>
             )}
-            {item.cashAmount > 0 && (
+            {(item.paymentType === 0 || item.paymentType === 2) && item.cashAmount > 0 && (
               <View style={styles.cashBadge}><Text style={styles.cashBadgeText}>{item.cashAmount.toLocaleString('tr-TR')} ₺</Text></View>
             )}
-            {item.fuelAmount > 0 && (
+            {(item.paymentType === 1 || item.paymentType === 2) && item.fuelAmount > 0 && (
               <View style={styles.fuelBadge}><Text style={styles.fuelBadgeText}>{item.fuelAmount.toLocaleString('tr-TR')} Lt</Text></View>
             )}
           </View>
         </View>
+
+        {!!item.note && (
+          <Text style={styles.haulNoteText} numberOfLines={2}>💬 {item.note}</Text>
+        )}
 
         <View style={styles.haulCardBot}>
           <Text style={styles.haulDump} numberOfLines={1}>→ {item.dumpLocation || '-'}</Text>
@@ -1268,7 +1284,7 @@ export default function JobDetails() {
                 <View style={{ padding: 20 }}>
                   <View style={styles.fuelInfoBox}>
                     <Text style={styles.fuelInfoLabel}>Mevcut Yakıt Stoku</Text>
-                    <Text style={styles.fuelInfoValue}>{job?.fuelStock ?? 0} lt</Text>
+                    <Text style={styles.fuelInfoValue}>{fuelStock} lt</Text>
                   </View>
 
                   <Text style={[styles.fieldLabel, { marginTop: 16 }]}>Eklenecek Miktar (Litre) <Text style={styles.req}>*</Text></Text>
@@ -1284,7 +1300,7 @@ export default function JobDetails() {
                   {!!fuelInput && parseInt(fuelInput) > 0 && (
                     <View style={styles.fuelCalcBox}>
                       <Text style={styles.fuelCalcText}>
-                        Yeni Stok: {(job?.fuelStock ?? 0) + parseInt(fuelInput)} lt
+                        Yeni Stok: {fuelStock + parseInt(fuelInput)} lt
                       </Text>
                     </View>
                   )}
@@ -1337,14 +1353,16 @@ export default function JobDetails() {
                 <Text style={[styles.fieldLabel, { marginHorizontal: 16 }]}>Ödeme Türü</Text>
                 <View style={styles.payTypeRow}>
                   <TouchableOpacity
-                    style={[styles.payTypeBtn, paymentType === 0 && styles.payTypeActive]}
+                    style={[styles.payTypeBtn, paymentType === 0 && styles.payTypeActive, !(paymentHaul?.cashAmount > 0) && { opacity: 0.35 }]}
                     onPress={() => setPaymentType(0)}
+                    disabled={!(paymentHaul?.cashAmount > 0)}
                   >
                     <Text style={[styles.payTypeText, paymentType === 0 && styles.payTypeTextActive]}>💵 Nakit (₺)</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.payTypeBtn, paymentType === 1 && styles.payTypeActive]}
+                    style={[styles.payTypeBtn, paymentType === 1 && styles.payTypeActive, !(paymentHaul?.fuelAmount > 0) && { opacity: 0.35 }]}
                     onPress={() => setPaymentType(1)}
+                    disabled={!(paymentHaul?.fuelAmount > 0)}
                   >
                     <Text style={[styles.payTypeText, paymentType === 1 && styles.payTypeTextActive]}>⛽ Yakıt (Lt)</Text>
                   </TouchableOpacity>
@@ -1357,10 +1375,8 @@ export default function JobDetails() {
                       <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Nakit Tutar (₺)</Text>
                       <TextInput
                         value={paymentCash}
-                        onChangeText={t => setPaymentCash(t.replace(/[^0-9,]/g, ''))}
-                        style={styles.textInput}
-                        keyboardType="decimal-pad"
-                        placeholder="0.00"
+                        editable={false}
+                        style={[styles.textInput, styles.textInputReadonly]}
                       />
                     </>
                   ) : (
@@ -1368,10 +1384,8 @@ export default function JobDetails() {
                       <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Yakıt Miktarı (Litre)</Text>
                       <TextInput
                         value={paymentFuel}
-                        onChangeText={t => setPaymentFuel(t.replace(/[^0-9,]/g, ''))}
-                        style={styles.textInput}
-                        keyboardType="decimal-pad"
-                        placeholder="0.00"
+                        editable={false}
+                        style={[styles.textInput, styles.textInputReadonly]}
                       />
                     </>
                   )}
@@ -1613,6 +1627,7 @@ const styles = StyleSheet.create({
   fuelBadge: { backgroundColor: '#FFF8E1', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#FFD54F' },
   fuelBadgeText: { fontSize: 12, color: '#E65100', fontWeight: '700' },
 
+  haulNoteText: { fontSize: 12, color: '#555', fontStyle: 'italic', paddingHorizontal: 12, paddingBottom: 6 },
   haulCardBot: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#F0F0F0', paddingTop: 8 },
   haulDump: { fontSize: 12, color: '#666', flex: 1 },
   eyeBtn: { borderWidth: 1.5, borderColor: '#1565C0', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
@@ -1659,6 +1674,9 @@ const styles = StyleSheet.create({
   textInput: {
     borderWidth: 1.5, borderColor: '#ddd', borderRadius: 10,
     paddingVertical: 12, paddingHorizontal: 14, fontSize: 15, backgroundColor: '#FAFAFA',
+  },
+  textInputReadonly: {
+    backgroundColor: '#F0F0F0', borderColor: '#e0e0e0', color: '#555',
   },
   noteInput: {
     borderWidth: 1.5, borderColor: '#ddd', borderRadius: 10,
