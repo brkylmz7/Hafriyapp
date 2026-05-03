@@ -1,5 +1,36 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Modal, ScrollView, Image } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Modal, ScrollView, Image, Linking } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
+
+// URL ve Türkçe telefon numaralarını tespit eder ([\s] yerine [ ] — newline yutmasın)
+const LINKIFY_PATTERN = /(https?:\/\/[^\s]+|(?:\+90|0)[5]\d{2}[ \-]?\d{3}[ \-]?\d{2}[ \-]?\d{2})/g;
+const IS_LINK_PATTERN = /^(https?:\/\/[^\s]+|(?:\+90|0)[5]\d{2}[ \-]?\d{3}[ \-]?\d{2}[ \-]?\d{2})$/;
+
+function LinkifiedText({ text, style }: { text: string; style?: any }) {
+  // \r\n ve \r → \n normalize et (Windows/eski sistemlerden gelen mesajlar için)
+  const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const parts = normalized.split(LINKIFY_PATTERN);
+  return (
+    <Text style={style}>
+      {parts.map((part, i) => {
+        if (!IS_LINK_PATTERN.test(part)) {
+          return <Text key={i}>{part}</Text>;
+        }
+        const isUrl = part.startsWith('http');
+        const href = isUrl ? part : `tel:${part.replace(/[ \-]/g, '')}`;
+        return (
+          <Text
+            key={i}
+            style={styles.linkText}
+            onPress={() => Linking.openURL(href)}
+          >
+            {part}
+          </Text>
+        );
+      })}
+    </Text>
+  );
+}
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -56,6 +87,7 @@ export default function CompanyChat() {
   const [blockInputPhone, setBlockInputPhone] = useState('');
   const [blockingPhone, setBlockingPhone] = useState(false);
   const [groupDeleting, setGroupDeleting] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) {
@@ -326,31 +358,49 @@ export default function CompanyChat() {
     }
   };
 
+  const handleCopyMessage = (item: any) => {
+    if (item.deleted || item.isTemp || !item.content) return;
+    // Panoya kopyalarken orijinal içeriği koru (satır sonları dahil)
+    const content: string = item.content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    Clipboard.setString(content);
+    setCopiedId(item.id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
   const renderItem = ({ item }: any) => {
     const isMyMessage = item.isOwnMessage;
     const isDeleted = !!item.deleted;
     const isTemp = !!item.isTemp;
+    const isCopied = copiedId === item.id;
     return (
       <View style={[styles.bubbleContainer, isMyMessage ? styles.myContainer : styles.theirContainer]}>
         {!isMyMessage && item.senderName && (
           <Text style={styles.senderName}>{item.senderName}</Text>
         )}
-        <View style={[
-          styles.bubble,
-          isMyMessage ? styles.myBubble : styles.theirBubble,
-          isDeleted && styles.deletedBubble,
-          isTemp && styles.tempBubble,
-        ]}>
-          <Text style={[styles.bubbleText, isDeleted && styles.deletedText]}>
-            {isDeleted ? 'Bu mesaj silindi' : item.content}
-          </Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', marginTop: 4, gap: 4 }}>
-            {isTemp && <Text style={styles.sendingDot}>⏳</Text>}
-            <Text style={styles.timeText}>
-              {new Date(item.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </Text>
+        <TouchableOpacity
+          onLongPress={() => handleCopyMessage(item)}
+          activeOpacity={0.8}
+          delayLongPress={300}
+        >
+          <View style={[
+            styles.bubble,
+            isMyMessage ? styles.myBubble : styles.theirBubble,
+            isDeleted && styles.deletedBubble,
+            isTemp && styles.tempBubble,
+          ]}>
+            {isDeleted
+              ? <Text style={[styles.bubbleText, styles.deletedText]}>Bu mesaj silindi</Text>
+              : <LinkifiedText text={item.content} style={styles.bubbleText} />
+            }
+            <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', marginTop: 4, gap: 4 }}>
+              {isTemp && <Text style={styles.sendingDot}>⏳</Text>}
+              {isCopied && <Text style={styles.copiedText}>Kopyalandı ✓</Text>}
+              <Text style={styles.timeText}>
+                {new Date(item.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </Text>
+            </View>
           </View>
-        </View>
+        </TouchableOpacity>
       </View>
     );
   };
@@ -394,7 +444,15 @@ export default function CompanyChat() {
         />
 
         <View style={[styles.inputRow, { paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, 12) : 12 }]}>
-          <TextInput value={text} onChangeText={setText} placeholder="Mesaj yaz..." style={styles.input} />
+          <TextInput
+            value={text}
+            onChangeText={setText}
+            placeholder="Mesaj yaz..."
+            style={styles.input}
+            multiline
+            maxLength={2000}
+            textAlignVertical="top"
+          />
           <TouchableOpacity style={styles.sendBtn} onPress={handleSendMessage} disabled={sending}>
             {sending ? <ActivityIndicator size="small" color="#000" /> : <Text style={{ fontWeight: '700' }}>Gönder</Text>}
           </TouchableOpacity>
@@ -669,17 +727,30 @@ const styles = StyleSheet.create({
   sendingDot: {
     fontSize: 9,
   },
+  copiedText: {
+    fontSize: 10,
+    color: '#27AE60',
+    fontWeight: '600',
+  },
+  linkText: {
+    color: '#1A6FC4',
+    textDecorationLine: 'underline',
+  },
   inputRow: {
     flexDirection: 'row',
     padding: 8,
     backgroundColor: '#fff',
+    alignItems: 'flex-end',
   },
   input: {
     flex: 1,
     backgroundColor: '#F2F2F2',
     borderRadius: 20,
     paddingHorizontal: 14,
-    height: 40,
+    paddingVertical: 10,
+    minHeight: 40,
+    maxHeight: 120,
+    fontSize: 15,
   },
   sendBtn: {
     marginLeft: 8,
@@ -687,6 +758,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 20,
     justifyContent: 'center',
+    height: 40,
   },
   backBtn: {
     width: 32,

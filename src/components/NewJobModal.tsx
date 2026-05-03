@@ -106,7 +106,7 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
     visible: false,
     title: '',
     options: [],
-    onSelect: () => {},
+    onSelect: () => { },
   });
 
   const districts = useMemo(() => {
@@ -137,7 +137,7 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
       setFuelStock(String(initialJob.fuelStock || ''));
       setStartTime(initialJob.loadingStartTime || '');
       setEndTime(initialJob.loadingEndTime || '');
-      setIsActive(initialJob.isActive !== false);
+      setIsActive(true); // Yükleme Açık her zaman true — buton gizli
       // API bu alanı henüz dönmüyor, AsyncStorage'dan oku
       getHaulsVisibility(initialJob.id).then(cached => {
         const apiValue = initialJob.isHaulVisibleToVehicleOwners ?? initialJob.showHaulsToVehicleOwners;
@@ -718,6 +718,7 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
 
         {/* AYARLAR */}
         <Card title="Ayarlar">
+          {/* Yükleme Açık butonu gizlendi — değer her zaman true olarak gönderilir
           <TouchableOpacity
             style={styles.toggleRow}
             onPress={() => setIsActive(v => !v)}
@@ -733,6 +734,7 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
           </TouchableOpacity>
 
           <View style={styles.toggleDivider} />
+          */}
 
           <TouchableOpacity
             style={styles.toggleRow}
@@ -741,7 +743,7 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
           >
             <View style={styles.toggleInfo}>
               <Text style={styles.toggleLabel}>Seferleri Araç Sahiplerine Göster</Text>
-              <Text style={styles.toggleHint}>Araç sahipleri sefer bilgilerini görebilir</Text>
+              <Text style={styles.toggleHint}>Açık olduğunda araç sahipleri sadece kendi plakalarına yazılan seferi görürler. </Text>
             </View>
             <View style={[styles.togglePill, showHaulsToVehicleOwners && styles.togglePillOn]}>
               <View style={[styles.toggleThumb, showHaulsToVehicleOwners && styles.toggleThumbOn]} />

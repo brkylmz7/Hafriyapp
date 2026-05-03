@@ -4,6 +4,7 @@ import {
   Image, Modal, TextInput, Alert, KeyboardAvoidingView, Platform,
   TouchableWithoutFeedback, Keyboard, AppState, Share, RefreshControl, ActionSheetIOS,
 } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useAppSelector, useAppDispatch } from '../../hooks';
@@ -87,9 +88,8 @@ const getOffersFromJob = (job: any): Offer[] => {
       if (Array.isArray(extras) && extras.length > 0) {
         const hasIsVisible = 'isVisible' in extras[0] || 'IsVisible' in extras[0];
         if (hasIsVisible) {
-          // Yeni format: tüm teklifler extraOffersJson içinde
+          // Yeni format: isVisible'dan bağımsız tüm teklifleri göster (piyasada değil, işlerim içinde)
           extras
-            .filter((e: any) => e.isVisible !== false && e.IsVisible !== false)
             .forEach((e: any) => {
               const name = e.name || e.Name || '-';
               const cash = parseFloat(e.cash ?? e.Cash ?? 0) || 0;
@@ -190,6 +190,14 @@ export default function JobDetails() {
   const [fuelInput, setFuelInput] = useState('');
   const [fuelSaving, setFuelSaving] = useState(false);
   const [fuelStock, setFuelStock] = useState<number>(job?.fuelStock ?? 0);
+
+  // ── Kopyalama feedback
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const copyWithFeedback = (value: string, key: string) => {
+    Clipboard.setString(value);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 1500);
+  };
 
   // ── Ödeme Onay modal
   const [paymentModal, setPaymentModal] = useState(false);
@@ -377,7 +385,7 @@ export default function JobDetails() {
   };
 
   // ── Manuel Ekle submit
-  const handleManualHaul = async () => {
+  const handleManualHaul = async (isPrinted: boolean) => {
     const cleanPlate = manualPlate.replace(/\s/g, '').toUpperCase();
     if (!cleanPlate) { Alert.alert('Eksik Bilgi', 'Plaka zorunludur.'); return; }
 
@@ -404,7 +412,7 @@ export default function JobDetails() {
       dumpLoc = manualDump.trim();
       cash = parseFloat(manualCash.replace(',', '.')) || 0;
       fuel = parseFloat(manualFuel.replace(',', '.')) || 0;
-      tonage = parseFloat(manualTonage.replace(',', '.')) || 0;
+      tonage = 0; // Hafriyat tonaj alanı kaldırıldı
       paymentType = cash > 0 && fuel > 0 ? 2 : fuel > 0 ? 1 : 0;
     }
 
@@ -414,7 +422,7 @@ export default function JobDetails() {
 
     if (online) {
       try {
-        await createHaul(
+        const created = await createHaul(
           {
             jobSiteId: job.id,
             plateNumber: cleanPlate,
@@ -425,21 +433,25 @@ export default function JobDetails() {
             dumpLocation: dumpLoc,
             note: manualNote.trim(),
             timeOfHaul: timeNow,
-            isPrintedReceipt: false,
+            isPrintedReceipt: isPrinted,
           },
           token!
         );
         setManualSaving(false);
         closeManualModal();
         fetchHauls();
-        Alert.alert('Başarılı', 'Sefer başarıyla kaydedildi.');
+        if (isPrinted) {
+          setSelectedHaul(created);
+          setReceiptVisible(true);
+          triggerPrint(created);
+        }
       } catch (err: any) {
         setManualSaving(false);
         Alert.alert('Hata', err.response?.data?.message || 'Sefer kaydedilemedi.');
       }
     } else {
       const localId = `local_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      dispatch(addPendingHaul({
+      const pending: PendingHaul = {
         localId,
         jobSiteId: job.id,
         plateNumber: cleanPlate,
@@ -449,13 +461,18 @@ export default function JobDetails() {
         fuelAmount: fuel,
         dumpLocation: dumpLoc,
         note: manualNote.trim(),
-        isPrintedReceipt: false,
+        isPrintedReceipt: isPrinted,
         timeOfHaul: timeNow,
         createdAt: timeNow,
-      }));
+      };
+      dispatch(addPendingHaul(pending));
       setManualSaving(false);
       closeManualModal();
-      Alert.alert('Çevrimdışı Kaydedildi', 'İnternet yok. İnternete bağlandığında otomatik gönderilecek.');
+      if (isPrinted) {
+        openPendingReceipt(pending);
+      } else {
+        Alert.alert('Çevrimdışı Kaydedildi', 'İnternet yok. İnternete bağlandığında otomatik gönderilecek.');
+      }
     }
   };
 
@@ -523,6 +540,30 @@ export default function JobDetails() {
     } catch { }
   };
 
+  const openPendingReceipt = (item: PendingHaul) => {
+    // PendingHaul → HaulApi şekline dönüştür, mevcut fiş modal'ını yeniden kullan
+    const fakeHaul: HaulApi = {
+      id: item.localId,
+      jobSiteId: item.jobSiteId,
+      jobSiteName: job?.name || '-',
+      companyName: '',
+      plateNumber: item.plateNumber,
+      timeOfHaul: item.timeOfHaul,
+      dumpLocation: item.dumpLocation,
+      tonage: item.tonage,
+      cashAmount: item.cashAmount,
+      fuelAmount: item.fuelAmount,
+      isPaid: false,
+      isPrintedReceipt: item.isPrintedReceipt,
+      paymentType: item.paymentType,
+      createdDate: item.createdAt,   // autoSerial bu alanı kullanır
+      isVisibleToVehicleOwner: false,
+      note: item.note,
+    };
+    setSelectedHaul(fakeHaul);
+    setReceiptVisible(true);
+  };
+
   const closeAddModal = () => {
     setAddModal(false);
     setFormPlate('');
@@ -552,8 +593,11 @@ export default function JobDetails() {
   };
 
   const autoSerial = (haul: HaulApi) => {
+    if (haul.serialNumber) return haul.serialNumber;
     const d = new Date(haul.createdDate);
-    return `${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`;
+    const datePart = `${String(d.getFullYear()).slice(2)}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    const idPart = haul.id.substring(0, 4).toUpperCase();
+    return `${datePart}${idPart}`;
   };
 
   // ── Ayarlar menüsü
@@ -736,17 +780,24 @@ export default function JobDetails() {
   // ── Bekleyen satır (offline)
   const renderPendingItem = (item: PendingHaul) => (
     <View key={item.localId} style={styles.pendingRow}>
-      <View style={styles.pendingBadge}>
-        <Text style={styles.pendingBadgeText}>⏳ Bekliyor</Text>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <View style={{ flex: 1 }}>
+          <View style={styles.pendingBadge}>
+            <Text style={styles.pendingBadgeText}>⏳ Bekliyor</Text>
+          </View>
+          <Text style={styles.pendingPlate}>{item.plateNumber}</Text>
+          <Text style={styles.pendingDate}>{new Date(item.timeOfHaul).toLocaleString('tr-TR')}</Text>
+          <Text style={styles.pendingPayType}>
+            {item.cashAmount > 0 ? `💵 ${item.cashAmount.toLocaleString('tr-TR')} TL` : ''}
+            {item.cashAmount > 0 && item.fuelAmount > 0 ? '  ' : ''}
+            {item.fuelAmount > 0 ? `⛽ ${item.fuelAmount.toLocaleString('tr-TR')} Lt` : ''}
+            {item.tonage > 0 ? `  ${item.tonage} ton` : ''}
+          </Text>
+        </View>
+        <TouchableOpacity style={styles.eyeBtn} onPress={() => openPendingReceipt(item)}>
+          <Text style={styles.eyeBtnText}>👁 Fiş</Text>
+        </TouchableOpacity>
       </View>
-      <Text style={styles.pendingPlate}>{item.plateNumber}</Text>
-      <Text style={styles.pendingDate}>{new Date(item.timeOfHaul).toLocaleString('tr-TR')}</Text>
-      <Text style={styles.pendingPayType}>
-        {item.cashAmount > 0 ? `💵 ${item.cashAmount.toLocaleString('tr-TR')} TL` : ''}
-        {item.cashAmount > 0 && item.fuelAmount > 0 ? '  ' : ''}
-        {item.fuelAmount > 0 ? `⛽ ${item.fuelAmount.toLocaleString('tr-TR')} Lt` : ''}
-        {item.tonage > 0 ? `  ${item.tonage} ton` : ''}
-      </Text>
     </View>
   );
 
@@ -789,7 +840,16 @@ export default function JobDetails() {
     return (
       <View key={item.id} style={[styles.haulCard, item.isPaid ? styles.haulCardPaid : styles.haulCardUnpaid]}>
         <View style={styles.haulCardTop}>
-          <Text style={styles.haulSerial}>{autoSerial(item)}{item.serialNumber ? `  #${item.serialNumber}` : ''}</Text>
+          <View style={styles.haulSerialRow}>
+            <TouchableOpacity
+              onPress={() => copyWithFeedback(autoSerial(item), `${item.id}-auto`)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.haulSerial, copiedKey === `${item.id}-auto` && styles.haulSerialCopied]}>
+                {copiedKey === `${item.id}-auto` ? '✓ ' : ''}{autoSerial(item)}
+              </Text>
+            </TouchableOpacity>
+          </View>
           {item.isPrintedReceipt && (
             <View style={styles.printedBadge}><Text style={styles.printedBadgeText}>🖨 Yazdırıldı</Text></View>
           )}
@@ -1204,15 +1264,6 @@ export default function JobDetails() {
                           </View>
                         </View>
 
-                        {/* Tonaj */}
-                        <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Tonaj <Text style={styles.optional}>(Opsiyonel)</Text></Text>
-                        <TextInput
-                          value={manualTonage}
-                          onChangeText={t => setManualTonage(t.replace(/[^0-9,]/g, ''))}
-                          style={styles.textInput}
-                          placeholder="0"
-                          keyboardType="decimal-pad"
-                        />
                       </>
                     )}
 
@@ -1228,9 +1279,26 @@ export default function JobDetails() {
                     />
                   </View>
 
-                  <View style={[styles.addCardFooter, { justifyContent: 'flex-end' }]}>
+                  <View style={[styles.addCardFooter, { justifyContent: 'flex-end', gap: 8 }]}>
                     <TouchableOpacity style={styles.cancelBtn} onPress={closeManualModal}>
                       <Text style={styles.cancelBtnText}>İptal</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.manualReceiptBtn, (
+                        !manualPlate ||
+                        (isKum ? (!manualLoading || !manualUnloading || !manualPricePerTon || !manualTonage) : !manualDump) ||
+                        manualSaving
+                      ) && { opacity: 0.4 }]}
+                      onPress={() => handleManualHaul(false)}
+                      disabled={
+                        !manualPlate ||
+                        (isKum ? (!manualLoading || !manualUnloading || !manualPricePerTon || !manualTonage) : !manualDump) ||
+                        manualSaving
+                      }
+                    >
+                      <Text style={styles.manualReceiptBtnText}>
+                        {manualSaving ? 'Kaydediliyor...' : 'Sanal Fiş Kes'}
+                      </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.manualSaveBtn, (
@@ -1238,7 +1306,7 @@ export default function JobDetails() {
                         (isKum ? (!manualLoading || !manualUnloading || !manualPricePerTon || !manualTonage) : !manualDump) ||
                         manualSaving
                       ) && { opacity: 0.4 }]}
-                      onPress={handleManualHaul}
+                      onPress={() => handleManualHaul(true)}
                       disabled={
                         !manualPlate ||
                         (isKum ? (!manualLoading || !manualUnloading || !manualPricePerTon || !manualTonage) : !manualDump) ||
@@ -1246,7 +1314,7 @@ export default function JobDetails() {
                       }
                     >
                       <Text style={styles.manualSaveBtnText}>
-                        {manualSaving ? 'Kaydediliyor...' : '✔ Kaydet'}
+                        {manualSaving ? 'Kaydediliyor...' : 'Fiş Kes ve Yazdır'}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -1416,10 +1484,12 @@ export default function JobDetails() {
       {selectedHaul && (
         <Modal visible={receiptVisible} transparent animationType="fade" onRequestClose={() => setReceiptVisible(false)}>
           <View style={styles.modalOverlay}>
-            {/* Fiş kart */}
+            <View style={styles.receiptWrapper}>
+
+            {/* ── Fiş Kart ── */}
             <View style={styles.receiptCard}>
 
-              {/* Sol şerit — "HAFRİYAPP" dikey */}
+              {/* Sol dikey şerit */}
               <View style={styles.receiptStrip}>
                 <Text style={styles.receiptStripText}>HAFRİYAPP</Text>
               </View>
@@ -1427,108 +1497,124 @@ export default function JobDetails() {
               {/* Ana içerik */}
               <View style={styles.receiptMain}>
 
-                {/* ── Başlık: firma + saat + QR ── */}
+                {/* Başlık: Logo + Firma/Şantiye + Saat */}
                 <View style={styles.receiptHead}>
-                  <View style={{ flex: 1 }}>
+                  <View style={styles.receiptLogoBox}>
+                    {selectedHaul.companyLogoPath ? (
+                      <Image
+                        source={{ uri: `https://api.hafriyapp.com${selectedHaul.companyLogoPath.startsWith('/') ? '' : '/'}${selectedHaul.companyLogoPath}` }}
+                        style={styles.receiptLogoImg}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <Image
+                        source={require('../../../assets/icons/truck.png')}
+                        style={styles.receiptLogoImg}
+                        resizeMode="contain"
+                      />
+                    )}
+                  </View>
+                  <View style={styles.receiptCompanyBlock}>
                     <Text style={styles.receiptCompanyName}>
-                      {(selectedHaul.companyName || 'HAFRİYAT').toUpperCase()}
+                      {(selectedHaul.companyName || '').toUpperCase()}
                     </Text>
-                    <Text style={styles.receiptDistrict}>
-                      {job?.districtName || job?.provinceName || ''}
+                    <Text style={styles.receiptJobSiteName}>
+                      {(selectedHaul.jobSiteName || job?.name || '').toUpperCase()}
                     </Text>
                   </View>
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={styles.receiptTimeText}>
-                      {new Date(selectedHaul.timeOfHaul).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
-                    </Text>
-                    {selectedHaul.qrCodeBase64 && (
+                  <Text style={styles.receiptTimeText}>
+                    {new Date(selectedHaul.timeOfHaul).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                </View>
+
+                {/* Gövde: Satırlar (sol) + QR (sağ) */}
+                <View style={styles.receiptBodyWrap}>
+                  <View style={styles.receiptBody}>
+
+                    <View style={styles.receiptRow}>
+                      <Text style={styles.receiptRowLabel}>Tarih :</Text>
+                      <Text style={styles.receiptRowValue}>
+                        {new Date(selectedHaul.timeOfHaul).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                      </Text>
+                    </View>
+
+                    <View style={styles.receiptRow}>
+                      <Text style={styles.receiptRowLabel}>Seri No :</Text>
+                      <Text style={styles.receiptRowValue}>{autoSerial(selectedHaul)}</Text>
+                    </View>
+
+                    <View style={styles.receiptRow}>
+                      <Text style={styles.receiptRowLabel}>Plaka :</Text>
+                      <Text style={styles.receiptRowValue}>{selectedHaul.plateNumber}</Text>
+                    </View>
+
+                    <View style={styles.receiptRow}>
+                      <Text style={styles.receiptRowLabel}>Şoför :</Text>
+                      <Text style={styles.receiptRowValue}>
+                        {selectedHaul.driverName || selectedHaul.driverPhone || '-'}
+                      </Text>
+                    </View>
+
+                    <View style={styles.receiptRow}>
+                      <Text style={styles.receiptRowLabel}>Döküm :</Text>
+                      <Text style={styles.receiptRowValue}>{selectedHaul.dumpLocation || '-'}</Text>
+                    </View>
+
+                    {selectedHaul.tonage > 0 && (
+                      <View style={styles.receiptRow}>
+                        <Text style={styles.receiptRowLabel}>Tonaj :</Text>
+                        <Text style={styles.receiptRowValue}>{selectedHaul.tonage.toFixed(2)} Ton</Text>
+                      </View>
+                    )}
+
+                    <View style={styles.receiptRow}>
+                      <Text style={styles.receiptRowLabel}>Ücret :</Text>
+                      <Text style={[styles.receiptRowValue, { fontWeight: '800' }]}>
+                        {[
+                          selectedHaul.cashAmount > 0 ? `${selectedHaul.cashAmount.toLocaleString('tr-TR')}₺` : '',
+                          selectedHaul.fuelAmount > 0 ? `${selectedHaul.fuelAmount.toLocaleString('tr-TR')}lt` : '',
+                        ].filter(Boolean).join(' / ') || '-'}
+                      </Text>
+                    </View>
+
+                    {!!selectedHaul.contactPhone && (
+                      <View style={[styles.receiptRow, { borderBottomWidth: 0 }]}>
+                        <Text style={styles.receiptRowLabel}>Yetkili :</Text>
+                        <Text style={styles.receiptRowValue}>{selectedHaul.contactPhone}</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* QR Kod — sağ taraf */}
+                  {selectedHaul.qrCodeBase64 && (
+                    <View style={styles.receiptQRBox}>
                       <Image
                         source={{ uri: `data:image/png;base64,${selectedHaul.qrCodeBase64}` }}
                         style={styles.receiptQRImg}
                       />
-                    )}
-                  </View>
-                </View>
-
-                {/* Tarih satırı */}
-                <View style={styles.receiptDateRow}>
-                  <Text style={styles.receiptDateText}>
-                    {new Date(selectedHaul.timeOfHaul).toLocaleDateString('tr-TR')}
-                  </Text>
-                </View>
-
-                {/* ── Satırlar ── */}
-                <View style={styles.receiptBody}>
-                  {/* Seri No */}
-                  <View style={styles.receiptRow}>
-                    <Text style={styles.receiptRowLabel}>Seri No</Text>
-                    <Text style={styles.receiptRowValue}>{autoSerial(selectedHaul)}</Text>
-                  </View>
-
-                  {/* Plaka + Şoför */}
-                  <View style={styles.receiptRow}>
-                    <Text style={styles.receiptRowLabel}>Plaka</Text>
-                    <Text style={[styles.receiptRowValue, { fontWeight: '800' }]}>
-                      {selectedHaul.plateNumber}
-                      {(selectedHaul.driverName || selectedHaul.driverPhone)
-                        ? `   Şoför  ${selectedHaul.driverName || selectedHaul.driverPhone}`
-                        : ''}
-                    </Text>
-                  </View>
-
-                  {/* Döküm */}
-                  <View style={styles.receiptRow}>
-                    <Text style={styles.receiptRowLabel}>Döküm</Text>
-                    <Text style={[styles.receiptRowValue, { fontWeight: '800' }]}>
-                      {selectedHaul.dumpLocation || '-'}
-                    </Text>
-                  </View>
-
-                  {/* Tonaj (opsiyonel) */}
-                  {selectedHaul.tonage > 0 && (
-                    <View style={styles.receiptRow}>
-                      <Text style={styles.receiptRowLabel}>Tonaj</Text>
-                      <Text style={styles.receiptRowValue}>{selectedHaul.tonage.toFixed(2)} Ton</Text>
                     </View>
                   )}
-
-                  {/* Ücret */}
-                  <View style={[styles.receiptRow, styles.receiptRowUcret]}>
-                    <Text style={[styles.receiptRowLabel, { fontWeight: '700' }]}>Ücret</Text>
-                    <Text style={[styles.receiptRowValue, { fontSize: 15, fontWeight: '800' }]}>
-                      {[
-                        selectedHaul.cashAmount > 0 ? `${selectedHaul.cashAmount.toLocaleString('tr-TR')}₺` : '',
-                        selectedHaul.fuelAmount > 0 ? `${selectedHaul.fuelAmount.toLocaleString('tr-TR')}lt` : '',
-                      ].filter(Boolean).join('/') || '-'}
-                    </Text>
-                  </View>
-
-                  {/* Yetkili */}
-                  {!!selectedHaul.contactPhone && (
-                    <View style={[styles.receiptRow, { borderBottomWidth: 0 }]}>
-                      <Text style={styles.receiptRowLabel}>Yetkili</Text>
-                      <Text style={styles.receiptRowValue}>{selectedHaul.contactPhone}</Text>
-                    </View>
-                  )}
-                </View>
-
-                {/* ── Footer butonlar ── */}
-                <View style={styles.receiptFooterRow}>
-                  <TouchableOpacity
-                    style={styles.receiptCloseBtnNew}
-                    onPress={() => setReceiptVisible(false)}
-                  >
-                    <Text style={styles.receiptCloseBtnNewText}>Kapat</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.receiptPrintBtnNew}
-                    onPress={() => triggerPrint(selectedHaul)}
-                  >
-                    <Text style={styles.receiptPrintBtnNewText}>🖨 Yazdır</Text>
-                  </TouchableOpacity>
                 </View>
 
               </View>
+            </View>
+
+            {/* Footer butonlar */}
+            <View style={styles.receiptFooterRow}>
+              <TouchableOpacity
+                style={styles.receiptCloseBtnNew}
+                onPress={() => setReceiptVisible(false)}
+              >
+                <Text style={styles.receiptCloseBtnNewText}>Kapat</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.receiptPrintBtnNew}
+                onPress={() => triggerPrint(selectedHaul)}
+              >
+                <Text style={styles.receiptPrintBtnNewText}>Yazdır</Text>
+              </TouchableOpacity>
+            </View>
+
             </View>
           </View>
         </Modal>
@@ -1610,7 +1696,9 @@ const styles = StyleSheet.create({
   haulCardUnpaid: { backgroundColor: '#FFFDE7', borderLeftColor: '#FFC107' },
 
   haulCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 6 },
-  haulSerial: { fontSize: 10, color: '#888', fontFamily: 'monospace', backgroundColor: '#F0F0F0', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, flex: 1 },
+  haulSerialRow: { flexDirection: 'row', gap: 4, flex: 1 },
+  haulSerial: { fontSize: 10, color: '#888', fontFamily: 'monospace', backgroundColor: '#F0F0F0', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  haulSerialCopied: { backgroundColor: '#E8F5E9', color: '#2E7D32' },
   printedBadge: { backgroundColor: '#E3F2FD', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
   printedBadgeText: { fontSize: 10, color: '#1565C0', fontWeight: '600' },
   statusPaid: { backgroundColor: '#E8F5E9', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
@@ -1737,8 +1825,10 @@ const styles = StyleSheet.create({
   sanalBtnText: { color: '#1976D2', fontWeight: '800', fontSize: 13 },
   printSubmitBtn: { flex: 1, backgroundColor: '#1976D2', borderRadius: 10, paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
   printSubmitBtnText: { color: '#fff', fontWeight: '800', fontSize: 13 },
-  manualSaveBtn: { flex: 1, backgroundColor: '#4CAF50', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
-  manualSaveBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  manualReceiptBtn: { flex: 1, backgroundColor: '#fff', borderRadius: 10, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#4CAF50' },
+  manualReceiptBtnText: { color: '#4CAF50', fontWeight: '800', fontSize: 13, textAlign: 'center' },
+  manualSaveBtn: { flex: 1, backgroundColor: '#4CAF50', borderRadius: 10, paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
+  manualSaveBtnText: { color: '#fff', fontWeight: '800', fontSize: 13, textAlign: 'center' },
 
   // ── Ödeme Onay Modal
   paymentCard: {
@@ -1843,22 +1933,36 @@ const styles = StyleSheet.create({
   fuelSaveBtnText: { color: '#fff', fontWeight: '800', fontSize: 14 },
 
   // ── Fiş Detay Modal (yeni tasarım)
-  receiptCard: {
-    width: '90%',
-    flexDirection: 'row',
+  receiptWrapper: {
+    width: '92%',
     backgroundColor: '#fff',
-    borderRadius: 14,
-    overflow: 'hidden',
+    borderRadius: 20,
+    padding: 14,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.22,
+    shadowOpacity: 0.2,
+    shadowRadius: 14,
+    elevation: 12,
+  },
+
+  receiptCard: {
+    width: '100%',
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: '#e0e0e0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
     shadowRadius: 10,
-    elevation: 10,
+    elevation: 8,
   },
 
   // Sol dikey şerit
   receiptStrip: {
-    width: 32,
+    width: 38,
     backgroundColor: '#2c2c2c',
     justifyContent: 'center',
     alignItems: 'center',
@@ -1867,9 +1971,9 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 2.5,
+    letterSpacing: 3,
     transform: [{ rotate: '-90deg' }],
-    width: 120,
+    width: 140,
     textAlign: 'center',
   },
 
@@ -1878,120 +1982,135 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
-  // Başlık satırı
+  // Başlık: Logo + Firma + Saat
   receiptHead: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'flex-start',
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ebebeb',
+  },
+  receiptLogoBox: {
+    width: 52,
+    height: 52,
+    borderRadius: 10,
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  receiptLogoImg: {
+    width: 44,
+    height: 44,
+  },
+  receiptCompanyBlock: {
+    flex: 1,
+    marginLeft: 10,
   },
   receiptCompanyName: {
-    fontSize: 17,
+    fontSize: 14,
     fontWeight: '800',
-    color: DARK,
-    letterSpacing: 0.5,
+    color: '#111',
+    letterSpacing: 0.2,
   },
-  receiptDistrict: {
+  receiptJobSiteName: {
     fontSize: 12,
-    color: '#666',
+    color: '#555',
+    fontWeight: '600',
     marginTop: 2,
-    fontWeight: '500',
   },
   receiptTimeText: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: DARK,
-  },
-  receiptQRImg: {
-    width: 70,
-    height: 70,
-    borderRadius: 6,
-    marginTop: 6,
-    backgroundColor: '#f0f0f0',
-  },
-
-  // Tarih satırı
-  receiptDateRow: {
-    paddingHorizontal: 16,
-    paddingBottom: 10,
-    borderBottomWidth: 1.5,
-    borderBottomColor: '#ddd',
-  },
-  receiptDateText: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#444',
+    fontWeight: '700',
+    color: '#111',
+    marginLeft: 6,
   },
 
-  // Satırlar
-  receiptBody: {
-    paddingHorizontal: 16,
+  // Gövde: satırlar + QR yan yana
+  receiptBodyWrap: {
+    flexDirection: 'row',
+    paddingLeft: 14,
+    paddingRight: 12,
     paddingTop: 6,
-    paddingBottom: 4,
+    paddingBottom: 12,
+    overflow: 'hidden',
+  },
+  receiptBody: {
+    flex: 1,
+    minWidth: 0,
   },
   receiptRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 9,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0,0,0,0.07)',
     borderStyle: 'dashed',
   },
-  receiptRowUcret: {
-    borderBottomColor: 'rgba(0,0,0,0.18)',
-    borderBottomWidth: 1.5,
-  },
   receiptRowLabel: {
-    fontSize: 13,
-    color: '#888',
+    fontSize: 12,
+    color: '#999',
     fontWeight: '500',
-    minWidth: 58,
-  },
-  receiptRowValue: {
-    fontSize: 13,
-    color: DARK,
-    fontWeight: '600',
-    flex: 1,
-    textAlign: 'right',
-    paddingLeft: 8,
+    width: 68,
   },
 
-  // Footer butonlar
+  receiptRowValue: {
+    fontSize: 13,
+    color: '#111',
+    fontWeight: '700',
+    flex: 1,
+    flexShrink: 1,
+  },
+
+  // QR sağ sütun
+  receiptQRBox: {
+    width: 82,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingBottom: 4,
+    paddingLeft: 6,
+  },
+  receiptQRImg: {
+    width: 76,
+    height: 76,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+
   receiptFooterRow: {
     flexDirection: 'row',
     gap: 10,
-    padding: 14,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-    marginTop: 4,
+    paddingTop: 12,
   },
   receiptCloseBtnNew: {
     flex: 1,
     borderWidth: 1.5,
-    borderColor: '#ccc',
-    borderRadius: 10,
-    paddingVertical: 12,
+    borderColor: '#bbb',
+    borderRadius: 12,
+    paddingVertical: 14,
     alignItems: 'center',
     backgroundColor: '#fff',
   },
   receiptCloseBtnNewText: {
-    color: '#555',
+    color: '#333',
     fontWeight: '700',
-    fontSize: 14,
+    fontSize: 15,
   },
   receiptPrintBtnNew: {
     flex: 1,
-    backgroundColor: '#2c2c2c',
-    borderRadius: 10,
-    paddingVertical: 12,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    paddingVertical: 14,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   receiptPrintBtnNewText: {
     color: '#fff',
     fontWeight: '700',
-    fontSize: 14,
+    fontSize: 15,
   },
 });
