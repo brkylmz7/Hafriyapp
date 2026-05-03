@@ -85,6 +85,7 @@ export type CreateHaulParams = {
   note?: string;
   timeOfHaul?: string; // ISO, yoksa şu an
   isPrintedReceipt?: boolean;
+  isVisibleToVehicleOwner?: boolean;
 };
 
 // Yeni sefer oluştur
@@ -107,6 +108,7 @@ export const createHaul = async (params: CreateHaulParams, token: string): Promi
       timeOfHaul: params.timeOfHaul ?? new Date().toISOString(),
       isPaid: false,
       isPrintedReceipt: params.isPrintedReceipt ?? false,
+      isVisibleToVehicleOwner: params.isVisibleToVehicleOwner ?? true,
     },
     {
       headers: {

@@ -401,7 +401,7 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
             loadingStartTime: startTime,
             loadingEndTime: endTime,
             isActive,
-            showHaulsToVehicleOwners,
+            isHaulVisibleToVehicleOwners: showHaulsToVehicleOwners,
           };
           await updateJobSite(token, initialJob.id, payload);
           Alert.alert('Güncellendi', 'İş ilanı başarıyla güncellendi.', [
@@ -436,7 +436,7 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
             LoadingEndTime: endTime,
             CashAmount: null,
             IsActive: isActive,
-            ShowHaulsToVehicleOwners: showHaulsToVehicleOwners,
+            IsHaulVisibleToVehicleOwners: showHaulsToVehicleOwners,
           };
           console.log('[NewJobModal] CREATE payload:', JSON.stringify(createPayload, null, 2));
           await createJobSite(token, createPayload);

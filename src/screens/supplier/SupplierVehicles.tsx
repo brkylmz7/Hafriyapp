@@ -553,11 +553,6 @@ export default function SupplierVehicles() {
     }
   };
 
-  const isHaulVisible = (h: any): boolean => {
-    const v = h.IsVisibleToVehicleOwner ?? h.isVisibleToVehicleOwner;
-    return v !== false;
-  };
-
   const fetchHauls = async () => {
     if (!token) return;
     try {
@@ -565,7 +560,6 @@ export default function SupplierVehicles() {
       setHaulsError(null);
       const data = await getHauls(token);
       const sorted = [...data]
-        .filter(isHaulVisible)
         .sort((a, b) => new Date(b.timeOfHaul).getTime() - new Date(a.timeOfHaul).getTime());
       setHauls(sorted);
     } catch {
@@ -581,7 +575,6 @@ export default function SupplierVehicles() {
     try {
       const data = await getHauls(token);
       const sorted = [...data]
-        .filter(isHaulVisible)
         .sort((a, b) => new Date(b.timeOfHaul).getTime() - new Date(a.timeOfHaul).getTime());
       setHauls(sorted);
       setHaulsError(null);
@@ -630,8 +623,9 @@ export default function SupplierVehicles() {
   useEffect(() => {
     if (!token || !companyId) return;
     getCompanyById(companyId, token)
-      .then(company => {
-        const path = company?.logoPath || company?.LogoPath || null;
+      .then(res => {
+        const companyData = res?.isSuccess ? res.data : (res?.data || res);
+        const path = companyData?.logoPath || companyData?.LogoPath || null;
         if (path) setCachedCompanyLogoPath(path);
       })
       .catch(() => {});

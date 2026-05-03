@@ -43,7 +43,7 @@ export const createJobSite = async (token: string, data: any) => {
     },
   });
   if (res.data?.id) {
-    await saveHaulsVisibility(res.data.id, data.ShowHaulsToVehicleOwners ?? true);
+    await saveHaulsVisibility(res.data.id, data.IsHaulVisibleToVehicleOwners ?? data.ShowHaulsToVehicleOwners ?? true);
   }
   return res.data;
 };
@@ -56,7 +56,7 @@ export const updateJobSite = async (token: string, id: string, data: any) => {
       accept: '*/*',
     },
   });
-  await saveHaulsVisibility(id, data.showHaulsToVehicleOwners ?? true);
+  await saveHaulsVisibility(id, data.isHaulVisibleToVehicleOwners ?? data.showHaulsToVehicleOwners ?? true);
   return res.data;
 };
 

@@ -13,6 +13,7 @@ import RNBlobUtil from 'react-native-blob-util';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NewJobModal from '../../components/NewJobModal';
 import { createHaul, updateHaulPayment, deleteHaul, HaulApi } from '../../services/haulService';
+import { getCompanyById } from '../../services/userService';
 import {
   addPendingHaul,
   removePendingHaul,
@@ -137,8 +138,9 @@ export default function JobDetails() {
     ...h,
     driverName: h.driverName || (h as any).DriverName || undefined,
     driverPhone: h.driverPhone || (h as any).DriverPhone || undefined,
-    companyLogoPath: h.companyLogoPath || (h as any).CompanyLogoPath || undefined,
-    companyName: h.companyName || (h as any).CompanyName || undefined,
+    companyLogoPath: h.companyLogoPath || (h as any).CompanyLogoPath || cachedCompanyLogoPath || undefined,
+    companyName: h.companyName || (h as any).CompanyName || user?.companyName || undefined,
+    jobSiteName: h.jobSiteName || (h as any).JobSiteName || job?.name || undefined,
   });
 
   // ── Ana liste
@@ -146,6 +148,10 @@ export default function JobDetails() {
   const [receiptVisible, setReceiptVisible] = useState(false);
   const [hauls, setHauls] = useState<HaulApi[]>([]);
   const [plateFilter, setPlateFilter] = useState('');
+  const [cachedCompanyLogoPath, setCachedCompanyLogoPath] = useState<string | null>(null);
+  const [showHaulsToOwners, setShowHaulsToOwners] = useState<boolean>(
+    job?.isHaulVisibleToVehicleOwners ?? job?.showHaulsToVehicleOwners ?? true
+  );
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -226,6 +232,8 @@ export default function JobDetails() {
     try {
       const data = await getJobSite(token, job.id);
       if (data?.fuelStock != null) setFuelStock(data.fuelStock);
+      const visible = data?.isHaulVisibleToVehicleOwners ?? data?.showHaulsToVehicleOwners;
+      if (visible != null) setShowHaulsToOwners(visible);
     } catch { }
   };
 
@@ -309,6 +317,17 @@ export default function JobDetails() {
     return () => sub.remove();
   }, [syncPending]);
 
+  useEffect(() => {
+    if (!token || !job?.companyId) return;
+    getCompanyById(job.companyId, token)
+      .then(res => {
+        const companyData = res?.isSuccess ? res.data : (res?.data || res);
+        const path = companyData?.logoPath || companyData?.LogoPath || null;
+        if (path) setCachedCompanyLogoPath(path);
+      })
+      .catch(() => {});
+  }, [token, job?.companyId]);
+
   // ── Sefer Gir submit (teklif seçimli)
   const handleAddHaul = async (isPrinted: boolean) => {
     const cleanPlate = formPlate.replace(/\s/g, '').toUpperCase();
@@ -352,6 +371,7 @@ export default function JobDetails() {
             note: formNote.trim(),
             timeOfHaul: timeNow,
             isPrintedReceipt: isPrinted,
+            isVisibleToVehicleOwner: showHaulsToOwners,
           },
           token!
         );
@@ -359,12 +379,10 @@ export default function JobDetails() {
         saveRecentPlate(cleanPlate);
         closeAddModal();
         fetchHauls();
+        setSelectedHaul(normalizeHaul(created));
+        setReceiptVisible(true);
         if (isPrinted) {
-          setSelectedHaul(normalizeHaul(created));
-          setReceiptVisible(true);
           triggerPrint(created);
-        } else {
-          Alert.alert('Başarılı', 'Sefer başarıyla kaydedildi.');
         }
       } catch (err: any) {
         setFormSaving(false);
@@ -444,15 +462,16 @@ export default function JobDetails() {
             note: manualNote.trim(),
             timeOfHaul: timeNow,
             isPrintedReceipt: isPrinted,
+            isVisibleToVehicleOwner: showHaulsToOwners,
           },
           token!
         );
         setManualSaving(false);
         closeManualModal();
         fetchHauls();
+        setSelectedHaul(normalizeHaul(created));
+        setReceiptVisible(true);
         if (isPrinted) {
-          setSelectedHaul(normalizeHaul(created));
-          setReceiptVisible(true);
           triggerPrint(created);
         }
       } catch (err: any) {
