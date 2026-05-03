@@ -34,7 +34,7 @@ export type HaulApi = {
 
 // Tüm seferleri getir (kullanıcıya ait araçların seferleri)
 export const getHauls = async (token: string): Promise<HaulApi[]> => {
-  const res = await api.get('/Haul/my', {
+  const res = await api.get('/Haul/my/filtered', {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
   });
   return Array.isArray(res.data) ? res.data : (res.data?.data ?? []);

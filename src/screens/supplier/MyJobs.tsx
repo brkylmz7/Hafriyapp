@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
   ActionSheetIOS,
 } from 'react-native';
 import RNBlobUtil from 'react-native-blob-util';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import NewJobModal from '../../components/NewJobModal';
@@ -154,6 +154,10 @@ export default function MyJobs() {
   useEffect(() => {
     fetchJobs();
   }, [token]);
+
+  useFocusEffect(useCallback(() => {
+    fetchJobs();
+  }, [token]));
 
   const handleEdit = (job: Job) => {
     setSelectedJob(job);

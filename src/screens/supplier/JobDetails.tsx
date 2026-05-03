@@ -8,7 +8,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useAppSelector, useAppDispatch } from '../../hooks';
-import { getJobHauls, getJobSite, deleteJobSite, updateJobSite } from '../../services/jobSiteNewService';
+import { getJobHauls, getJobSite, deleteJobSite, forceDeleteJobSite, updateJobSite } from '../../services/jobSiteNewService';
 import RNBlobUtil from 'react-native-blob-util';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NewJobModal from '../../components/NewJobModal';
@@ -202,6 +202,9 @@ export default function JobDetails() {
   // ── Ayarlar: Düzenle / Yakıt Ekle / İşi Sil / İndir
   const [editModal, setEditModal] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [deleteStep1Visible, setDeleteStep1Visible] = useState(false);
+  const [deleteStep2Visible, setDeleteStep2Visible] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [fuelModal, setFuelModal] = useState(false);
   const [fuelInput, setFuelInput] = useState('');
   const [fuelSaving, setFuelSaving] = useState(false);
@@ -633,13 +636,15 @@ export default function JobDetails() {
   const downloadExcel = async () => {
     if (!token || !job?.id) return;
     setDownloading(true);
+    // Modal kapatılmadan openDocument sunamaz; önce kapat, animasyon bitince aç
+    setDeleteStep1Visible(false);
     try {
-      const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
       const res = await RNBlobUtil.config({ fileCache: true, appendExt: 'xlsx' })
         .fetch('GET', `https://api.hafriyapp.com/api/Haul/jobsite/${job.id}/export`, {
           Authorization: `Bearer ${token}`,
         });
       const path = res.path();
+      await new Promise<void>(r => setTimeout(r, 350));
       if (Platform.OS === 'ios') {
         await RNBlobUtil.ios.openDocument(path);
       } else {
@@ -725,29 +730,22 @@ export default function JobDetails() {
     }
   };
 
-  // ── İşi Bitir
-  const handleFinishJob = () => {
-    Alert.alert(
-      'İşi Bitir',
-      'Bu işi sonlandırmak istediğinize emin misiniz? Bu işlem geri alınamaz.',
-      [
-        { text: 'Vazgeç', style: 'cancel' },
-        {
-          text: 'Evet, Bitir',
-          style: 'destructive',
-          onPress: async () => {
-            if (!token || !job?.id) return;
-            try {
-              await deleteJobSite(token, job.id);
-              navigation.goBack();
-            } catch (error: any) {
-              const msg = error?.response?.data?.message || 'İş sonlandırılırken bir sorun oluştu.';
-              Alert.alert('Hata', msg);
-            }
-          },
-        },
-      ],
-    );
+  // ── İşi Sil (2 adımlı)
+  const handleFinishJob = () => setDeleteStep1Visible(true);
+
+  const handleConfirmDelete = async () => {
+    if (!token || !job?.id) return;
+    setDeleting(true);
+    try {
+      await forceDeleteJobSite(token, job.id);
+      setDeleteStep2Visible(false);
+      navigation.goBack();
+    } catch (error: any) {
+      setDeleteStep2Visible(false);
+      Alert.alert('Hata', error?.response?.data?.message || 'İş silinirken bir sorun oluştu.');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   // ── Header
@@ -1698,6 +1696,94 @@ export default function JobDetails() {
           </View>
         </Modal>
       )}
+
+      {/* ═══════════════ İŞİ SİL ADIM 1 ═══════════════ */}
+      <Modal visible={deleteStep1Visible} transparent animationType="fade" onRequestClose={() => setDeleteStep1Visible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.deleteModal}>
+            {/* Başlık */}
+            <View style={styles.deleteModalHeader}>
+              <Text style={styles.deleteModalHeaderText}>⚠️  İşi Silmek İstiyorsunuz</Text>
+            </View>
+            {/* Gövde */}
+            <View style={styles.deleteModalBody}>
+              <Text style={styles.deleteModalJobName}>{job?.name}</Text>
+              {hauls.length > 0 ? (
+                <View style={styles.deleteModalInfoBox}>
+                  <Text style={styles.deleteModalInfoText}>
+                    Bu işe ait <Text style={{ fontWeight: '700' }}>{hauls.length}</Text> sefer kaydı bulunuyor.
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.deleteModalInfoBox}>
+                  <Text style={styles.deleteModalInfoText}>Bu işe ait sefer kaydı bulunmuyor.</Text>
+                </View>
+              )}
+              <Text style={styles.deleteModalWarning}>
+                Silmeden önce sefer verilerinizi Excel olarak indirmenizi öneriyoruz.{'\n'}
+                <Text style={{ fontWeight: '700' }}>Silinen veriler geri alınamaz!</Text>
+              </Text>
+              {hauls.length > 0 && (
+                <TouchableOpacity
+                  style={styles.deleteExcelBtn}
+                  onPress={downloadExcel}
+                  disabled={downloading}
+                >
+                  <Text style={styles.deleteExcelBtnText}>
+                    {downloading ? 'İndiriliyor...' : '📥  Excel İndir (Yedek Al)'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={styles.deleteProceedBtn}
+                onPress={() => { setDeleteStep1Visible(false); setDeleteStep2Visible(true); }}
+              >
+                <Text style={styles.deleteProceedBtnText}>Devam Et — İşi Sil</Text>
+              </TouchableOpacity>
+            </View>
+            {/* Footer */}
+            <TouchableOpacity style={styles.deleteModalCancelBtn} onPress={() => setDeleteStep1Visible(false)}>
+              <Text style={styles.deleteModalCancelText}>Vazgeç</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ═══════════════ İŞİ SİL ADIM 2 ═══════════════ */}
+      <Modal visible={deleteStep2Visible} transparent animationType="fade" onRequestClose={() => setDeleteStep2Visible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.deleteModal}>
+            {/* Başlık */}
+            <View style={[styles.deleteModalHeader, { backgroundColor: '#D32F2F' }]}>
+              <Text style={styles.deleteModalHeaderText}>🚫  Son Onay — Geri Dönüş Yok!</Text>
+            </View>
+            {/* Gövde */}
+            <View style={styles.deleteModalBody}>
+              <Text style={{ fontSize: 36, textAlign: 'center', marginBottom: 12 }}>🗑️</Text>
+              <Text style={[styles.deleteModalJobName, { fontSize: 15 }]}>
+                <Text style={{ fontWeight: '700' }}>{job?.name}</Text> işi ve tüm sefer kayıtları kalıcı olarak silinecek.
+              </Text>
+              <Text style={[styles.deleteModalWarning, { color: '#D32F2F', fontWeight: '700', marginTop: 8 }]}>
+                Bu işlem geri alınamaz!
+              </Text>
+              <TouchableOpacity
+                style={[styles.deleteProceedBtn, { backgroundColor: '#D32F2F', marginTop: 16 }]}
+                onPress={handleConfirmDelete}
+                disabled={deleting}
+              >
+                <Text style={styles.deleteProceedBtnText}>
+                  {deleting ? 'Siliniyor...' : 'Evet, İşi ve Tüm Seferleri Sil'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {/* Footer */}
+            <TouchableOpacity style={styles.deleteModalCancelBtn} onPress={() => setDeleteStep2Visible(false)}>
+              <Text style={styles.deleteModalCancelText}>Vazgeç</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 }
@@ -1812,6 +1898,22 @@ const styles = StyleSheet.create({
 
   // ── Modal overlay
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center' },
+
+  // ── Silme modalları
+  deleteModal: { width: '88%', backgroundColor: '#fff', borderRadius: 16, overflow: 'hidden' },
+  deleteModalHeader: { backgroundColor: '#F57F17', paddingVertical: 16, paddingHorizontal: 20 },
+  deleteModalHeaderText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  deleteModalBody: { padding: 20 },
+  deleteModalJobName: { fontSize: 17, fontWeight: '700', color: '#222', textAlign: 'center', marginBottom: 12 },
+  deleteModalInfoBox: { backgroundColor: '#FFF8E1', borderRadius: 8, padding: 10, marginBottom: 12 },
+  deleteModalInfoText: { color: '#555', fontSize: 13, textAlign: 'center' },
+  deleteModalWarning: { color: '#555', fontSize: 13, textAlign: 'center', lineHeight: 20, marginBottom: 4 },
+  deleteExcelBtn: { backgroundColor: '#2E7D32', borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginBottom: 10 },
+  deleteExcelBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  deleteProceedBtn: { backgroundColor: '#C62828', borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
+  deleteProceedBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  deleteModalCancelBtn: { borderTopWidth: 1, borderTopColor: '#eee', paddingVertical: 14, alignItems: 'center', backgroundColor: '#F5F5F5' },
+  deleteModalCancelText: { color: '#555', fontSize: 15, fontWeight: '600' },
 
   // ── Sefer Gir / Manuel Ekle card
   addCard: { width: '92%', backgroundColor: '#fff', borderRadius: 18, overflow: 'hidden', marginVertical: 20 },
