@@ -23,6 +23,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppSelector } from '../../hooks';
 import { deleteVehicle, getVehicles, updateVehicle, createVehicle, assignDriver, getVehicleDriver, removeDriver } from '../../services/vehicleService';
 import { getHauls, updateHaulPayment, HaulApi } from '../../services/haulService';
+import { getCompanyById } from '../../services/userService';
 import RNBlobUtil from 'react-native-blob-util';
 import Clipboard from '@react-native-clipboard/clipboard';
 
@@ -84,6 +85,7 @@ export default function SupplierVehicles() {
 
   const [receiptVisible, setReceiptVisible] = useState(false);
   const [selectedTrip, setSelectedTrip] = useState<HaulApi | null>(null);
+  const [cachedCompanyLogoPath, setCachedCompanyLogoPath] = useState<string | null>(null);
 
   // Seferler (Hauls)
   const [hauls, setHauls] = useState<HaulApi[]>([]);
@@ -394,7 +396,17 @@ export default function SupplierVehicles() {
   };
 
   const openReceipt = (item: HaulApi) => {
-    setSelectedTrip(item);
+    const normalizedPlate = (item.plateNumber || '').replace(/\s/g, '').toUpperCase();
+    const matchedVehicle = vehicles.find(
+      v => v.plate.replace(/\s/g, '').toUpperCase() === normalizedPlate
+    );
+    setSelectedTrip({
+      ...item,
+      driverName: item.driverName || (item as any).DriverName || matchedVehicle?.driverName || undefined,
+      driverPhone: item.driverPhone || (item as any).DriverPhone || undefined,
+      companyLogoPath: item.companyLogoPath || (item as any).CompanyLogoPath || cachedCompanyLogoPath || undefined,
+      companyName: item.companyName || (item as any).CompanyName || user?.companyName || undefined,
+    });
     setReceiptVisible(true);
   };
 
@@ -614,6 +626,16 @@ export default function SupplierVehicles() {
     fetchVehicles();
     fetchHauls();
   }, [token]);
+
+  useEffect(() => {
+    if (!token || !companyId) return;
+    getCompanyById(companyId, token)
+      .then(company => {
+        const path = company?.logoPath || company?.LogoPath || null;
+        if (path) setCachedCompanyLogoPath(path);
+      })
+      .catch(() => {});
+  }, [token, companyId]);
 
 
   /* ================= RENDERS ================= */
@@ -1297,12 +1319,7 @@ export default function SupplierVehicles() {
                     <Text style={styles.receiptApproveBtnNewText}>Onayla</Text>
                   </TouchableOpacity>
                 ) : (
-                  <TouchableOpacity
-                    style={styles.receiptPrintBtnNew}
-                    onPress={() => triggerPrint(selectedTrip)}
-                  >
-                    <Text style={styles.receiptPrintBtnNewText}>Yazdır</Text>
-                  </TouchableOpacity>
+                  null
                 )}
               </View>
 
@@ -2400,7 +2417,7 @@ const styles = StyleSheet.create({
   receiptBodyWrap: {
     flexDirection: 'row',
     paddingLeft: 14,
-    paddingRight: 10,
+    paddingRight: 12,
     paddingTop: 6,
     paddingBottom: 12,
     overflow: 'hidden',

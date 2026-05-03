@@ -129,13 +129,23 @@ export default function JobDetails() {
   const dispatch = useAppDispatch();
 
   const token = useAppSelector(state => state.auth.token);
+  const user = useAppSelector(state => state.auth.user);
   const pendingQueue = useAppSelector(state => state.pendingHaul.queue);
   const isKum = job?.jobType === 1;
+
+  const normalizeHaul = (h: HaulApi): HaulApi => ({
+    ...h,
+    driverName: h.driverName || (h as any).DriverName || undefined,
+    driverPhone: h.driverPhone || (h as any).DriverPhone || undefined,
+    companyLogoPath: h.companyLogoPath || (h as any).CompanyLogoPath || undefined,
+    companyName: h.companyName || (h as any).CompanyName || undefined,
+  });
 
   // ── Ana liste
   const [selectedHaul, setSelectedHaul] = useState<HaulApi | null>(null);
   const [receiptVisible, setReceiptVisible] = useState(false);
   const [hauls, setHauls] = useState<HaulApi[]>([]);
+  const [plateFilter, setPlateFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -350,7 +360,7 @@ export default function JobDetails() {
         closeAddModal();
         fetchHauls();
         if (isPrinted) {
-          setSelectedHaul(created);
+          setSelectedHaul(normalizeHaul(created));
           setReceiptVisible(true);
           triggerPrint(created);
         } else {
@@ -441,7 +451,7 @@ export default function JobDetails() {
         closeManualModal();
         fetchHauls();
         if (isPrinted) {
-          setSelectedHaul(created);
+          setSelectedHaul(normalizeHaul(created));
           setReceiptVisible(true);
           triggerPrint(created);
         }
@@ -740,6 +750,10 @@ export default function JobDetails() {
     </View>
   );
 
+  const filteredHauls = plateFilter.trim()
+    ? hauls.filter(h => h.plateNumber.replace(/\s/g, '').toLowerCase().includes(plateFilter.replace(/\s/g, '').toLowerCase()))
+    : hauls;
+
   // ── Özet çubuğu (compact tek satır)
   const renderSummaryCards = () => {
     const todayStr = new Date().toDateString();
@@ -902,7 +916,7 @@ export default function JobDetails() {
                 <Text style={styles.deleteBtnText}>🗑 Sil</Text>
               </TouchableOpacity>
             )}
-            <TouchableOpacity style={styles.eyeBtn} onPress={() => { setSelectedHaul(item); setReceiptVisible(true); }}>
+            <TouchableOpacity style={styles.eyeBtn} onPress={() => { setSelectedHaul(normalizeHaul(item)); setReceiptVisible(true); }}>
               <Text style={styles.eyeBtnText}>👁 Fiş</Text>
             </TouchableOpacity>
           </View>
@@ -973,7 +987,34 @@ export default function JobDetails() {
               <Text style={styles.emptyText}>Henüz sefer kaydı yok.</Text>
             </View>
           ) : (
-            hauls.map(renderHaulItem)
+            <>
+              {hauls.length > 0 && (
+                <View style={styles.searchBox}>
+                  <Text style={styles.searchIcon}>🔍</Text>
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="Plaka ara..."
+                    placeholderTextColor="#aaa"
+                    value={plateFilter}
+                    onChangeText={setPlateFilter}
+                    autoCapitalize="characters"
+                  />
+                  {plateFilter.length > 0 && (
+                    <TouchableOpacity onPress={() => setPlateFilter('')}>
+                      <Text style={styles.searchClear}>✕</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+              {filteredHauls.length === 0 && plateFilter.length > 0 ? (
+                <View style={styles.emptyBox}>
+                  <Text style={{ fontSize: 32 }}>🔍</Text>
+                  <Text style={styles.emptyText}>"{plateFilter}" için sonuç bulunamadı.</Text>
+                </View>
+              ) : (
+                filteredHauls.map(renderHaulItem)
+              )}
+            </>
           )}
         </View>
       </ScrollView>
@@ -1516,7 +1557,7 @@ export default function JobDetails() {
                   </View>
                   <View style={styles.receiptCompanyBlock}>
                     <Text style={styles.receiptCompanyName}>
-                      {(selectedHaul.companyName || '').toUpperCase()}
+                      {(selectedHaul.companyName || user?.companyName || '').toUpperCase()}
                     </Text>
                     <Text style={styles.receiptJobSiteName}>
                       {(selectedHaul.jobSiteName || job?.name || '').toUpperCase()}
@@ -1577,6 +1618,16 @@ export default function JobDetails() {
                       </Text>
                     </View>
 
+                    <View style={styles.receiptRow}>
+                      <Text style={styles.receiptRowLabel}>Durum :</Text>
+                      <Text style={[styles.receiptRowValue, {
+                        color: selectedHaul.isPaid ? '#2E7D32' : '#E65100',
+                        fontWeight: '800',
+                      }]}>
+                        {selectedHaul.isPaid ? '✔ Ödendi' : '⏳ Bekliyor'}
+                      </Text>
+                    </View>
+
                     {!!selectedHaul.contactPhone && (
                       <View style={[styles.receiptRow, { borderBottomWidth: 0 }]}>
                         <Text style={styles.receiptRowLabel}>Yetkili :</Text>
@@ -1607,12 +1658,21 @@ export default function JobDetails() {
               >
                 <Text style={styles.receiptCloseBtnNewText}>Kapat</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.receiptPrintBtnNew}
-                onPress={() => triggerPrint(selectedHaul)}
-              >
-                <Text style={styles.receiptPrintBtnNewText}>Yazdır</Text>
-              </TouchableOpacity>
+              {!selectedHaul.isPaid && !selectedHaul.isPrintedReceipt ? (
+                <TouchableOpacity
+                  style={styles.receiptApproveBtnNew}
+                  onPress={() => { setReceiptVisible(false); openPaymentConfirm(selectedHaul); }}
+                >
+                  <Text style={styles.receiptApproveBtnNewText}>Onayla</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.receiptPrintBtnNew}
+                  onPress={() => triggerPrint(selectedHaul)}
+                >
+                  <Text style={styles.receiptPrintBtnNewText}>Yazdır</Text>
+                </TouchableOpacity>
+              )}
             </View>
 
             </View>
@@ -2112,5 +2172,46 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
     fontSize: 15,
+  },
+  receiptApproveBtnNew: {
+    flex: 1,
+    backgroundColor: '#2E7D32',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  receiptApproveBtnNewText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 15,
+  },
+
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E8E8E8',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  searchIcon: { fontSize: 14, marginRight: 8 },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#1a1a1a',
+  },
+  searchClear: {
+    fontSize: 14,
+    color: '#aaa',
+    paddingHorizontal: 4,
   },
 });
