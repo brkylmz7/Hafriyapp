@@ -769,11 +769,11 @@ export default function JobDetails() {
 
   const filteredHauls = plateFilter.trim()
     ? hauls.filter(h => {
-        const q = plateFilter.replace(/\s/g, '').toLowerCase();
-        const plate = h.plateNumber.replace(/\s/g, '').toLowerCase();
-        const serial = autoSerial(h).replace(/\s/g, '').toLowerCase();
-        return plate.includes(q) || serial.includes(q);
-      })
+      const q = plateFilter.replace(/\s/g, '').toLowerCase();
+      const plate = h.plateNumber.replace(/\s/g, '').toLowerCase();
+      const serial = autoSerial(h).replace(/\s/g, '').toLowerCase();
+      return plate.includes(q) || serial.includes(q);
+    })
     : hauls;
 
   // ── Özet çubuğu (compact tek satır)
@@ -874,7 +874,7 @@ export default function JobDetails() {
   const renderHaulItem = (item: HaulApi) => {
     const material = getMaterialFromDumpLocation(item.dumpLocation || '');
     return (
-      <View key={item.id} style={[styles.haulCard, item.isPaid ? styles.haulCardPaid : styles.haulCardUnpaid]}>
+      <TouchableOpacity key={item.id} style={[styles.haulCard, item.isPaid ? styles.haulCardPaid : styles.haulCardUnpaid]} activeOpacity={0.85} onPress={() => { setSelectedHaul(normalizeHaul(item)); setReceiptVisible(true); }}>
         <View style={styles.haulCardTop}>
           <View style={styles.haulSerialRow}>
             <TouchableOpacity
@@ -943,7 +943,7 @@ export default function JobDetails() {
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 

@@ -283,7 +283,7 @@ const ProfileScreen = () => {
 
             <InfoRow icon="📱" label="Telefon" value={companyPhone || '-'} />
             <InfoRow icon="📍" label="Adres" value={companyAddress || '-'} />
-            <InfoRow icon="🔖" label="Vergi No" value={companyTaxNumber || '-'} />
+            {/* <InfoRow icon="🔖" label="Vergi No" value={companyTaxNumber || '-'} /> */}
           </View>
         </View>
       )}

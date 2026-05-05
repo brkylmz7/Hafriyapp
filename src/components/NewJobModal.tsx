@@ -11,6 +11,7 @@ import {
   Modal,
   FlatList,
   Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Alert } from 'react-native';
@@ -76,6 +77,7 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
   const token = useAppSelector(state => state.auth.token);
 
   const [jobCategory, setJobCategory] = useState<JobCategory>('HAFRIYAT');
+  const [nakliyeciOpen, setNakliyeciOpen] = useState(false);
 
   const [siteName, setSiteName] = useState('');
   const [provinceCode, setProvinceCode] = useState<number | null>(null);
@@ -456,7 +458,7 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
   /* ================= RENDER ================= */
 
   return (
-    <View style={styles.wrapper}>
+    <KeyboardAvoidingView style={styles.wrapper} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={0}>
       {/* HEADER */}
       <View style={[styles.header, { paddingTop: insets.top }]}>
         <TouchableOpacity onPress={() => onClose()} style={styles.backBtn}>
@@ -466,7 +468,7 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
         <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         {/* İŞ TÜRÜ */}
         <View style={styles.categoryWrapper}>
           <TouchableOpacity
@@ -490,7 +492,7 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
           </TouchableOpacity>
         </View>
 
-        {/* TEMEL BİLGİLER */}
+        {/* TEMEL BİLGİLER — İş Adı + Teklifler/Rotalar */}
         <Card title="Temel Bilgiler">
           <AppInput
             label="İş Adı *"
@@ -499,277 +501,266 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
             onChangeText={setSiteName}
           />
 
-          <Text style={styles.label}>İl *</Text>
-          <TouchableOpacity
-            style={styles.input}
-            onPress={() =>
-              openPicker(
-                'İl Seçin',
-                CITIES.map(c => ({ label: c.label, value: c.value })),
-                value => {
-                  setProvinceCode(value);
-                  setDistrictName('');
-                },
-              )
-            }
-          >
-            <Text style={{ color: provinceCode ? '#111' : '#8E8E93' }}>
-              {provinceCode ? CITIES.find(c => c.value === provinceCode)?.label : 'İl seçin'}
-            </Text>
-          </TouchableOpacity>
+          {/* HAFRİYAT → TEKLİFLER */}
+          {jobCategory === 'HAFRIYAT' && (
+            <>
+              <Text style={styles.subSectionTitle}>Teklifler</Text>
+              {offers.map((o, i) => (
+                <View key={i} style={styles.offerBox}>
+                  <View style={styles.routeHeader}>
+                    <Text style={styles.offerTitle}>Teklif {i + 1}</Text>
+                    <View style={styles.offerHeaderRight}>
+                      <TouchableOpacity
+                        style={[styles.visibleBtn, o.isVisible && styles.visibleBtnActive]}
+                        onPress={() => updateOffer(i, 'isVisible', !o.isVisible)}
+                      >
+                        <Text style={[styles.visibleBtnText, o.isVisible && styles.visibleBtnTextActive]}>
+                          {o.isVisible ? '👁 Görünür' : '🚫 Gizli'}
+                        </Text>
+                      </TouchableOpacity>
+                      {offers.length > 1 && (
+                        <TouchableOpacity onPress={() => removeOffer(i)}>
+                          <Text style={styles.delete}>Sil</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </View>
+                  <AppInput
+                    placeholder="Döküm yeri adı (örn: Cebeci)"
+                    value={o.dumpLocation}
+                    onChangeText={v => updateOffer(i, 'dumpLocation', v)}
+                  />
+                  <View style={styles.row}>
+                    <AppInput
+                      placeholder="Nakit ₺"
+                      keyboardType="numeric"
+                      value={o.cash}
+                      onChangeText={v => updateOffer(i, 'cash', v)}
+                      flex
+                    />
+                    <AppInput
+                      placeholder="Yakıt Lt"
+                      keyboardType="numeric"
+                      value={o.fuel}
+                      onChangeText={v => updateOffer(i, 'fuel', v)}
+                      flex
+                    />
+                  </View>
+                  <Text style={styles.hint}>Nakit veya yakıttan en az birini girin</Text>
+                </View>
+              ))}
+              <TouchableOpacity style={styles.addOfferBtn} onPress={addOffer}>
+                <Text style={styles.addOfferText}>+ Teklif Ekle</Text>
+              </TouchableOpacity>
+            </>
+          )}
 
-          <Text style={styles.label}>İlçe *</Text>
-          <TouchableOpacity
-            style={[styles.input, !provinceCode && { opacity: 0.5 }]}
-            disabled={!provinceCode}
-            onPress={() =>
-              openPicker(
-                'İlçe Seçin',
-                districts.map(d => ({ label: d.label, value: d.value })),
-                value => setDistrictName(value),
-              )
-            }
-          >
-            <Text style={{ color: districtName ? '#111' : '#8E8E93' }}>
-              {districtName || 'İlçe seçin'}
-            </Text>
-          </TouchableOpacity>
-
-          <AppInput
-            label="Konum Linki"
-            placeholder="Google Maps linki"
-            value={locationUrl}
-            onChangeText={setLocationUrl}
-          />
-
-          <Text style={styles.label}>İrtibat Telefonları *</Text>
-
-          {phones.map((p, i) => (
-            <View key={i} style={styles.phoneRow}>
-              <AppInput
-                placeholder="05xx xxx xx xx"
-                keyboardType="phone-pad"
-                value={p}
-                onChangeText={v => updatePhone(i, v)}
-                flex
-              />
-              {phones.length > 1 && (
-                <TouchableOpacity onPress={() => removePhone(i)}>
-                  <Text style={styles.delete}>Sil</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          ))}
-
-          <TouchableOpacity onPress={addPhone}>
-            <Text style={styles.addText}>+ Telefon Ekle</Text>
-          </TouchableOpacity>
-
-          <AppInput
-            label="Tabela Açıklaması"
-            placeholder="Kısa tabela açıklaması (max 100 karakter)"
-            value={signDescription}
-            onChangeText={setSignDescription}
-            error={signDescription.length > 100 ? `Tabela açıklaması 100 karakterden fazla olamaz (${signDescription.length}/100)` : undefined}
-          />
-
-          <AppInput
-            label="Açıklama"
-            placeholder="Ek bilgiler (opsiyonel)"
-            value={description}
-            onChangeText={setDescription}
-            multiline
-            height={110}
-          />
-        </Card>
-
-        {/* HAFRİYAT → TEKLİFLER */}
-        {jobCategory === 'HAFRIYAT' && (
-          <Card title="Teklifler">
-            {offers.map((o, i) => (
-              <View key={i} style={styles.offerBox}>
-                <View style={styles.routeHeader}>
-                  <Text style={styles.offerTitle}>Teklif {i + 1}</Text>
-
-                  <View style={styles.offerHeaderRight}>
-                    {/* Görünürlük toggle */}
-                    <TouchableOpacity
-                      style={[styles.visibleBtn, o.isVisible && styles.visibleBtnActive]}
-                      onPress={() => updateOffer(i, 'isVisible', !o.isVisible)}
-                    >
-                      <Text style={[styles.visibleBtnText, o.isVisible && styles.visibleBtnTextActive]}>
-                        {o.isVisible ? '👁 Görünür' : '🚫 Gizli'}
-                      </Text>
-                    </TouchableOpacity>
-
-                    {offers.length > 1 && (
-                      <TouchableOpacity onPress={() => removeOffer(i)}>
+          {/* KUM/MICIR → ROTALAR */}
+          {jobCategory === 'KUM_MICIR' && (
+            <>
+              <Text style={styles.subSectionTitle}>Rotalar</Text>
+              <Text style={styles.routeInfo}>
+                Yükleme ve boşaltma noktalarını belirleyin. Her rota için ton fiyatı girebilirsiniz.
+              </Text>
+              {routes.map((r, i) => (
+                <View key={i} style={styles.routeBox}>
+                  <View style={styles.routeHeader}>
+                    <Text style={styles.offerTitle}>Rota {i + 1}</Text>
+                    {routes.length > 1 && (
+                      <TouchableOpacity onPress={() => removeRoute(i)}>
                         <Text style={styles.delete}>Sil</Text>
                       </TouchableOpacity>
                     )}
                   </View>
-                </View>
-
-                <AppInput
-                  placeholder="Döküm yeri adı (örn: Cebeci)"
-                  value={o.dumpLocation}
-                  onChangeText={v => updateOffer(i, 'dumpLocation', v)}
-                />
-
-                <View style={styles.row}>
                   <AppInput
-                    placeholder="Nakit ₺"
-                    keyboardType="numeric"
-                    value={o.cash}
-                    onChangeText={v => updateOffer(i, 'cash', v)}
-                    flex
+                    placeholder="Yükleme Yeri"
+                    value={r.loadLocation}
+                    onChangeText={v => updateRoute(i, 'loadLocation', v)}
                   />
                   <AppInput
-                    placeholder="Yakıt Lt"
-                    keyboardType="numeric"
-                    value={o.fuel}
-                    onChangeText={v => updateOffer(i, 'fuel', v)}
+                    placeholder="Boşaltma Yeri"
+                    value={r.unloadLocation}
+                    onChangeText={v => updateRoute(i, 'unloadLocation', v)}
+                  />
+                  <View style={styles.row}>
+                    <AppInput
+                      placeholder="Ton başına ₺"
+                      keyboardType="numeric"
+                      value={r.cashPerTon}
+                      onChangeText={v => updateRoute(i, 'cashPerTon', v)}
+                      flex
+                    />
+                    <AppInput
+                      placeholder="Malzeme Cinsi"
+                      value={r.material}
+                      onChangeText={v => updateRoute(i, 'material', v)}
+                      flex
+                    />
+                  </View>
+                </View>
+              ))}
+              <TouchableOpacity style={styles.addOfferBtn} onPress={addRoute}>
+                <Text style={styles.addOfferText}>+ Rota Ekle</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </Card>
+
+        {/* NAKLİYECİ ÇAĞIR — Collapsible */}
+        <View style={styles.card}>
+          <TouchableOpacity
+            style={styles.nakliyeciHeader}
+            onPress={() => setNakliyeciOpen(v => !v)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.cardTitle}>Nakliyeci Çağır</Text>
+            <Text style={styles.nakliyeciChevron}>{nakliyeciOpen ? '▲' : '▼'}</Text>
+          </TouchableOpacity>
+
+          {nakliyeciOpen && (
+            <>
+              {/* Konum */}
+              <Text style={styles.label}>İl </Text>
+              <TouchableOpacity
+                style={styles.input}
+                onPress={() =>
+                  openPicker(
+                    'İl Seçin',
+                    CITIES.map(c => ({ label: c.label, value: c.value })),
+                    value => {
+                      setProvinceCode(value);
+                      setDistrictName('');
+                    },
+                  )
+                }
+              >
+                <Text style={{ color: provinceCode ? '#111' : '#8E8E93' }}>
+                  {provinceCode ? CITIES.find(c => c.value === provinceCode)?.label : 'İl seçin'}
+                </Text>
+              </TouchableOpacity>
+
+              <Text style={styles.label}>İlçe </Text>
+              <TouchableOpacity
+                style={[styles.input, !provinceCode && { opacity: 0.5 }]}
+                disabled={!provinceCode}
+                onPress={() =>
+                  openPicker(
+                    'İlçe Seçin',
+                    districts.map(d => ({ label: d.label, value: d.value })),
+                    value => setDistrictName(value),
+                  )
+                }
+              >
+                <Text style={{ color: districtName ? '#111' : '#8E8E93' }}>
+                  {districtName || 'İlçe seçin'}
+                </Text>
+              </TouchableOpacity>
+
+              <AppInput
+                label="Konum Linki"
+                placeholder="Google Maps linki"
+                value={locationUrl}
+                onChangeText={setLocationUrl}
+              />
+
+              <Text style={styles.label}>İrtibat Telefonları </Text>
+              {phones.map((p, i) => (
+                <View key={i} style={styles.phoneRow}>
+                  <AppInput
+                    placeholder="05xx xxx xx xx"
+                    keyboardType="phone-pad"
+                    value={p}
+                    onChangeText={v => updatePhone(i, v)}
                     flex
                   />
-                </View>
-
-                <Text style={styles.hint}>Nakit veya yakıttan en az birini girin</Text>
-              </View>
-            ))}
-
-            <TouchableOpacity style={styles.addOfferBtn} onPress={addOffer}>
-              <Text style={styles.addOfferText}>+ Teklif Ekle</Text>
-            </TouchableOpacity>
-          </Card>
-        )}
-
-        {/* KUM/MICIR → ROTALAR */}
-        {jobCategory === 'KUM_MICIR' && (
-          <Card title="Rotalar">
-            <Text style={styles.routeInfo}>
-              Yükleme ve boşaltma noktalarını belirleyin. Her rota için ton fiyatı girebilirsiniz.
-            </Text>
-
-            {routes.map((r, i) => (
-              <View key={i} style={styles.routeBox}>
-                <View style={styles.routeHeader}>
-                  <Text style={styles.offerTitle}>Rota {i + 1}</Text>
-                  {routes.length > 1 && (
-                    <TouchableOpacity onPress={() => removeRoute(i)}>
+                  {phones.length > 1 && (
+                    <TouchableOpacity onPress={() => removePhone(i)}>
                       <Text style={styles.delete}>Sil</Text>
                     </TouchableOpacity>
                   )}
                 </View>
+              ))}
+              <TouchableOpacity onPress={addPhone}>
+                <Text style={styles.addText}>+ Telefon Ekle</Text>
+              </TouchableOpacity>
 
+              <AppInput
+                label="Tabela Açıklaması"
+                placeholder="Kısa tabela açıklaması (max 100 karakter)"
+                value={signDescription}
+                onChangeText={setSignDescription}
+                error={signDescription.length > 100 ? `Tabela açıklaması 100 karakterden fazla olamaz (${signDescription.length}/100)` : undefined}
+              />
+
+              <AppInput
+                label="Açıklama"
+                placeholder="Ek bilgiler (opsiyonel)"
+                value={description}
+                onChangeText={setDescription}
+                multiline
+                height={110}
+              />
+
+              {/* Çalışma Saatleri */}
+              <View style={styles.toggleDivider} />
+              <Text style={styles.subSectionTitle}>Çalışma Saatleri</Text>
+              <View style={styles.row}>
                 <AppInput
-                  placeholder="Yükleme Yeri"
-                  value={r.loadLocation}
-                  onChangeText={v => updateRoute(i, 'loadLocation', v)}
+                  placeholder="Başlangıç (09:00)"
+                  value={startTime}
+                  onChangeText={setStartTime}
+                  flex
                 />
-
                 <AppInput
-                  placeholder="Boşaltma Yeri"
-                  value={r.unloadLocation}
-                  onChangeText={v => updateRoute(i, 'unloadLocation', v)}
+                  placeholder="Bitiş (18:00)"
+                  value={endTime}
+                  onChangeText={setEndTime}
+                  flex
                 />
-
-                <View style={styles.row}>
-                  <AppInput
-                    placeholder="Ton başına ₺"
-                    keyboardType="numeric"
-                    value={r.cashPerTon}
-                    onChangeText={v => updateRoute(i, 'cashPerTon', v)}
-                    flex
-                  />
-                  <AppInput
-                    placeholder="Malzeme Cinsi"
-                    value={r.material}
-                    onChangeText={v => updateRoute(i, 'material', v)}
-                    flex
-                  />
-                </View>
               </View>
-            ))}
+              <Text style={styles.hint}>Şantiyenin çalışma saat aralığı</Text>
 
-            <TouchableOpacity style={styles.addOfferBtn} onPress={addRoute}>
-              <Text style={styles.addOfferText}>+ Rota Ekle</Text>
-            </TouchableOpacity>
-          </Card>
-        )}
+              {/* Ayarlar */}
+              <View style={styles.toggleDivider} />
+              <Text style={styles.subSectionTitle}>Ayarlar</Text>
+              <TouchableOpacity
+                style={styles.toggleRow}
+                onPress={() => setShowHaulsToVehicleOwners(v => !v)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.toggleInfo}>
+                  <Text style={styles.toggleLabel}>Seferleri Araç Sahiplerine Göster</Text>
+                  <Text style={styles.toggleHint}>Açık olduğunda araç sahipleri sadece kendi plakalarına yazılan seferi görürler.</Text>
+                </View>
+                <View style={[styles.togglePill, showHaulsToVehicleOwners && styles.togglePillOn]}>
+                  <View style={[styles.toggleThumb, showHaulsToVehicleOwners && styles.toggleThumbOn]} />
+                </View>
+              </TouchableOpacity>
+              {!showHaulsToVehicleOwners && (
+                <Text style={styles.toggleNote}>
+                  Kapatırsanız bundan sonra kesilen fişler araç sahiplerine görünmez
+                </Text>
+              )}
 
-        {/* ÇALIŞMA SAATLERİ */}
-        <Card title="Çalışma Saatleri">
-          <View style={styles.row}>
-            <AppInput
-              placeholder="Başlangıç (09:00)"
-              value={startTime}
-              onChangeText={setStartTime}
-              flex
-            />
-            <AppInput
-              placeholder="Bitiş (18:00)"
-              value={endTime}
-              onChangeText={setEndTime}
-              flex
-            />
-          </View>
-          <Text style={styles.hint}>Şantiyenin çalışma saat aralığı</Text>
-        </Card>
-
-        {/* AYARLAR */}
-        <Card title="Ayarlar">
-          {/* Yükleme Açık butonu gizlendi — değer her zaman true olarak gönderilir
-          <TouchableOpacity
-            style={styles.toggleRow}
-            onPress={() => setIsActive(v => !v)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.toggleInfo}>
-              <Text style={styles.toggleLabel}>Yükleme Açık</Text>
-              <Text style={styles.toggleHint}>Aktif edildiğinde araçlar yükleme yapabilir</Text>
-            </View>
-            <View style={[styles.togglePill, isActive && styles.togglePillOn]}>
-              <View style={[styles.toggleThumb, isActive && styles.toggleThumbOn]} />
-            </View>
-          </TouchableOpacity>
-
-          <View style={styles.toggleDivider} />
-          */}
-
-          <TouchableOpacity
-            style={styles.toggleRow}
-            onPress={() => setShowHaulsToVehicleOwners(v => !v)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.toggleInfo}>
-              <Text style={styles.toggleLabel}>Seferleri Araç Sahiplerine Göster</Text>
-              <Text style={styles.toggleHint}>Açık olduğunda araç sahipleri sadece kendi plakalarına yazılan seferi görürler. </Text>
-            </View>
-            <View style={[styles.togglePill, showHaulsToVehicleOwners && styles.togglePillOn]}>
-              <View style={[styles.toggleThumb, showHaulsToVehicleOwners && styles.toggleThumbOn]} />
-            </View>
-          </TouchableOpacity>
-          {!showHaulsToVehicleOwners && (
-            <Text style={styles.toggleNote}>
-              Kapatırsanız bundan sonra kesilen fişler araç sahiplerine görünmez
-            </Text>
+              {/* Yakıt Stoku - Sadece Hafriyat/Döküm için */}
+              {jobCategory === 'HAFRIYAT' && (
+                <>
+                  <View style={styles.toggleDivider} />
+                  <Text style={styles.subSectionTitle}>Yakıt Stoku</Text>
+                  <AppInput
+                    placeholder="Şantiyedeki toplam yakıt (Litre)"
+                    keyboardType="numeric"
+                    value={fuelStock}
+                    onChangeText={setFuelStock}
+                  />
+                  <Text style={styles.hint}>Şantiyede bulunan toplam yakıt miktarı</Text>
+                </>
+              )}
+            </>
           )}
-        </Card>
+        </View>
 
-        {/* YAKIT STOKU - Sadece Hafriyat/Döküm için */}
-        {jobCategory === 'HAFRIYAT' && (
-          <Card title="Yakıt Stoku">
-            <AppInput
-              placeholder="Şantiyedeki toplam yakıt (Litre)"
-              keyboardType="numeric"
-              value={fuelStock}
-              onChangeText={setFuelStock}
-            />
-            <Text style={styles.hint}>Şantiyede bulunan toplam yakıt miktarı</Text>
-          </Card>
-        )}
-
-        <View style={{ height: 140 }} />
+        <View style={{ height: 20 }} />
       </ScrollView>
 
       {/* FOOTER */}
@@ -821,7 +812,7 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
           </View>
         </View>
       </Modal>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -891,7 +882,30 @@ const styles = StyleSheet.create({
   },
   cardTitle: { fontWeight: '800', marginBottom: 10, fontSize: 18 },
 
-  label: { fontSize: 12, color: '#666', marginTop: 10, marginBottom: 6 },
+  nakliyeciHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 5,
+    elevation: 4,
+  },
+  nakliyeciChevron: {
+    fontSize: 14,
+    color: '#999',
+    marginBottom: 10,
+  },
+  subSectionTitle: {
+    fontWeight: '700',
+    fontSize: 15,
+    color: '#444',
+    marginTop: 12,
+    marginBottom: 6,
+  },
+
+  label: { fontSize: 15, color: '#666', marginTop: 10, marginBottom: 6 },
 
   input: {
     backgroundColor: '#F7F7F7',
@@ -962,7 +976,7 @@ const styles = StyleSheet.create({
     color: '#2E7D32',
   },
 
-  addText: { color: '#666', fontSize: 12, marginTop: 4 },
+  addText: { color: '#666', fontSize: 14, marginTop: 4 },
 
   addOfferBtn: {
     borderWidth: 1,
@@ -995,9 +1009,6 @@ const styles = StyleSheet.create({
   categoryTextActive: { color: '#111', fontWeight: '900' },
 
   footer: {
-    position: 'absolute',
-    bottom: 5,
-    width: '100%',
     flexDirection: 'row',
     padding: 14,
     backgroundColor: '#fff',
