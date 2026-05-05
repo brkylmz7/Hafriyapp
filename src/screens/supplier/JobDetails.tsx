@@ -328,7 +328,7 @@ export default function JobDetails() {
         const path = companyData?.logoPath || companyData?.LogoPath || null;
         if (path) setCachedCompanyLogoPath(path);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [token, job?.companyId]);
 
   // ── Sefer Gir submit (teklif seçimli)
@@ -768,7 +768,12 @@ export default function JobDetails() {
   );
 
   const filteredHauls = plateFilter.trim()
-    ? hauls.filter(h => h.plateNumber.replace(/\s/g, '').toLowerCase().includes(plateFilter.replace(/\s/g, '').toLowerCase()))
+    ? hauls.filter(h => {
+        const q = plateFilter.replace(/\s/g, '').toLowerCase();
+        const plate = h.plateNumber.replace(/\s/g, '').toLowerCase();
+        const serial = autoSerial(h).replace(/\s/g, '').toLowerCase();
+        return plate.includes(q) || serial.includes(q);
+      })
     : hauls;
 
   // ── Özet çubuğu (compact tek satır)
@@ -927,7 +932,7 @@ export default function JobDetails() {
                 <Text style={styles.approveBtnText}>✔ Onayla</Text>
               </TouchableOpacity>
             )}
-            {console.log('[deleteBtn]', item.id.slice(0,8), '| isPaid:', item.isPaid, '| canEdit:', job?.canEdit, '| createdDate:', item.createdDate, '| withinHour:', isWithinOneHour(item.createdDate)) as any}
+            {console.log('[deleteBtn]', item.id.slice(0, 8), '| isPaid:', item.isPaid, '| canEdit:', job?.canEdit, '| createdDate:', item.createdDate, '| withinHour:', isWithinOneHour(item.createdDate)) as any}
             {!item.isPaid && job?.canEdit && isWithinOneHour(item.createdDate) && (
               <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDeleteHaul(item)}>
                 <Text style={styles.deleteBtnText}>🗑 Sil</Text>
@@ -1010,7 +1015,7 @@ export default function JobDetails() {
                   <Text style={styles.searchIcon}>🔍</Text>
                   <TextInput
                     style={styles.searchInput}
-                    placeholder="Plaka ara..."
+                    placeholder="Plaka veya seri no ara..."
                     placeholderTextColor="#aaa"
                     value={plateFilter}
                     onChangeText={setPlateFilter}
@@ -1544,153 +1549,153 @@ export default function JobDetails() {
           <View style={styles.modalOverlay}>
             <View style={styles.receiptWrapper}>
 
-            {/* ── Fiş Kart ── */}
-            <View style={styles.receiptCard}>
+              {/* ── Fiş Kart ── */}
+              <View style={styles.receiptCard}>
 
-              {/* Sol dikey şerit */}
-              <View style={styles.receiptStrip}>
-                <Text style={styles.receiptStripText}>HAFRİYAPP</Text>
-              </View>
-
-              {/* Ana içerik */}
-              <View style={styles.receiptMain}>
-
-                {/* Başlık: Logo + Firma/Şantiye + Saat */}
-                <View style={styles.receiptHead}>
-                  <View style={styles.receiptLogoBox}>
-                    {selectedHaul.companyLogoPath ? (
-                      <Image
-                        source={{ uri: `https://api.hafriyapp.com${selectedHaul.companyLogoPath.startsWith('/') ? '' : '/'}${selectedHaul.companyLogoPath}` }}
-                        style={styles.receiptLogoImg}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <Image
-                        source={require('../../../assets/icons/truck.png')}
-                        style={styles.receiptLogoImg}
-                        resizeMode="contain"
-                      />
-                    )}
-                  </View>
-                  <View style={styles.receiptCompanyBlock}>
-                    <Text style={styles.receiptCompanyName}>
-                      {(selectedHaul.companyName || user?.companyName || '').toUpperCase()}
-                    </Text>
-                    <Text style={styles.receiptJobSiteName}>
-                      {(selectedHaul.jobSiteName || job?.name || '').toUpperCase()}
-                    </Text>
-                  </View>
-                  <Text style={styles.receiptTimeText}>
-                    {new Date(selectedHaul.timeOfHaul).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
-                  </Text>
+                {/* Sol dikey şerit */}
+                <View style={styles.receiptStrip}>
+                  <Text style={styles.receiptStripText}>HAFRİYAPP</Text>
                 </View>
 
-                {/* Gövde: Satırlar (sol) + QR (sağ) */}
-                <View style={styles.receiptBodyWrap}>
-                  <View style={styles.receiptBody}>
+                {/* Ana içerik */}
+                <View style={styles.receiptMain}>
 
-                    <View style={styles.receiptRow}>
-                      <Text style={styles.receiptRowLabel}>Tarih :</Text>
-                      <Text style={styles.receiptRowValue}>
-                        {new Date(selectedHaul.timeOfHaul).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                  {/* Başlık: Logo + Firma/Şantiye + Saat */}
+                  <View style={styles.receiptHead}>
+                    <View style={styles.receiptLogoBox}>
+                      {selectedHaul.companyLogoPath ? (
+                        <Image
+                          source={{ uri: `https://api.hafriyapp.com${selectedHaul.companyLogoPath.startsWith('/') ? '' : '/'}${selectedHaul.companyLogoPath}` }}
+                          style={styles.receiptLogoImg}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <Image
+                          source={require('../../../assets/icons/truck.png')}
+                          style={styles.receiptLogoImg}
+                          resizeMode="contain"
+                        />
+                      )}
+                    </View>
+                    <View style={styles.receiptCompanyBlock}>
+                      <Text style={styles.receiptCompanyName}>
+                        {(selectedHaul.companyName || user?.companyName || '').toUpperCase()}
+                      </Text>
+                      <Text style={styles.receiptJobSiteName}>
+                        {(selectedHaul.jobSiteName || job?.name || '').toUpperCase()}
                       </Text>
                     </View>
+                    <Text style={styles.receiptTimeText}>
+                      {new Date(selectedHaul.timeOfHaul).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                  </View>
 
-                    <View style={styles.receiptRow}>
-                      <Text style={styles.receiptRowLabel}>Seri No :</Text>
-                      <Text style={styles.receiptRowValue}>{autoSerial(selectedHaul)}</Text>
-                    </View>
+                  {/* Gövde: Satırlar (sol) + QR (sağ) */}
+                  <View style={styles.receiptBodyWrap}>
+                    <View style={styles.receiptBody}>
 
-                    <View style={styles.receiptRow}>
-                      <Text style={styles.receiptRowLabel}>Plaka :</Text>
-                      <Text style={styles.receiptRowValue}>{selectedHaul.plateNumber}</Text>
-                    </View>
-
-                    <View style={styles.receiptRow}>
-                      <Text style={styles.receiptRowLabel}>Şoför :</Text>
-                      <Text style={styles.receiptRowValue}>
-                        {selectedHaul.driverName || selectedHaul.driverPhone || '-'}
-                      </Text>
-                    </View>
-
-                    <View style={styles.receiptRow}>
-                      <Text style={styles.receiptRowLabel}>Döküm :</Text>
-                      <Text style={styles.receiptRowValue}>{selectedHaul.dumpLocation || '-'}</Text>
-                    </View>
-
-                    {selectedHaul.tonage > 0 && (
                       <View style={styles.receiptRow}>
-                        <Text style={styles.receiptRowLabel}>Tonaj :</Text>
-                        <Text style={styles.receiptRowValue}>{selectedHaul.tonage.toFixed(2)} Ton</Text>
+                        <Text style={styles.receiptRowLabel}>Tarih :</Text>
+                        <Text style={styles.receiptRowValue}>
+                          {new Date(selectedHaul.timeOfHaul).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                        </Text>
                       </View>
-                    )}
 
-                    <View style={styles.receiptRow}>
-                      <Text style={styles.receiptRowLabel}>Ücret :</Text>
-                      <Text style={[styles.receiptRowValue, { fontWeight: '800' }]}>
-                        {[
-                          selectedHaul.cashAmount > 0 ? `${selectedHaul.cashAmount.toLocaleString('tr-TR')}₺` : '',
-                          selectedHaul.fuelAmount > 0 ? `${selectedHaul.fuelAmount.toLocaleString('tr-TR')}lt` : '',
-                        ].filter(Boolean).join(' / ') || '-'}
-                      </Text>
+                      <View style={styles.receiptRow}>
+                        <Text style={styles.receiptRowLabel}>Seri No :</Text>
+                        <Text style={styles.receiptRowValue}>{autoSerial(selectedHaul)}</Text>
+                      </View>
+
+                      <View style={styles.receiptRow}>
+                        <Text style={styles.receiptRowLabel}>Plaka :</Text>
+                        <Text style={styles.receiptRowValue}>{selectedHaul.plateNumber}</Text>
+                      </View>
+
+                      <View style={styles.receiptRow}>
+                        <Text style={styles.receiptRowLabel}>Şoför :</Text>
+                        <Text style={styles.receiptRowValue}>
+                          {selectedHaul.driverName || selectedHaul.driverPhone || '-'}
+                        </Text>
+                      </View>
+
+                      <View style={styles.receiptRow}>
+                        <Text style={styles.receiptRowLabel}>Döküm :</Text>
+                        <Text style={styles.receiptRowValue}>{selectedHaul.dumpLocation || '-'}</Text>
+                      </View>
+
+                      {selectedHaul.tonage > 0 && (
+                        <View style={styles.receiptRow}>
+                          <Text style={styles.receiptRowLabel}>Tonaj :</Text>
+                          <Text style={styles.receiptRowValue}>{selectedHaul.tonage.toFixed(2)} Ton</Text>
+                        </View>
+                      )}
+
+                      <View style={styles.receiptRow}>
+                        <Text style={styles.receiptRowLabel}>Ücret :</Text>
+                        <Text style={[styles.receiptRowValue, { fontWeight: '800' }]}>
+                          {[
+                            selectedHaul.cashAmount > 0 ? `${selectedHaul.cashAmount.toLocaleString('tr-TR')}₺` : '',
+                            selectedHaul.fuelAmount > 0 ? `${selectedHaul.fuelAmount.toLocaleString('tr-TR')}lt` : '',
+                          ].filter(Boolean).join(' / ') || '-'}
+                        </Text>
+                      </View>
+
+                      <View style={styles.receiptRow}>
+                        <Text style={styles.receiptRowLabel}>Durum :</Text>
+                        <Text style={[styles.receiptRowValue, {
+                          color: selectedHaul.isPaid ? '#2E7D32' : '#E65100',
+                          fontWeight: '800',
+                        }]}>
+                          {selectedHaul.isPaid ? '✔ Ödendi' : '⏳ Bekliyor'}
+                        </Text>
+                      </View>
+
+                      {!!selectedHaul.contactPhone && (
+                        <View style={[styles.receiptRow, { borderBottomWidth: 0 }]}>
+                          <Text style={styles.receiptRowLabel}>Yetkili :</Text>
+                          <Text style={styles.receiptRowValue}>{selectedHaul.contactPhone}</Text>
+                        </View>
+                      )}
                     </View>
 
-                    <View style={styles.receiptRow}>
-                      <Text style={styles.receiptRowLabel}>Durum :</Text>
-                      <Text style={[styles.receiptRowValue, {
-                        color: selectedHaul.isPaid ? '#2E7D32' : '#E65100',
-                        fontWeight: '800',
-                      }]}>
-                        {selectedHaul.isPaid ? '✔ Ödendi' : '⏳ Bekliyor'}
-                      </Text>
-                    </View>
-
-                    {!!selectedHaul.contactPhone && (
-                      <View style={[styles.receiptRow, { borderBottomWidth: 0 }]}>
-                        <Text style={styles.receiptRowLabel}>Yetkili :</Text>
-                        <Text style={styles.receiptRowValue}>{selectedHaul.contactPhone}</Text>
+                    {/* QR Kod — sağ taraf */}
+                    {selectedHaul.qrCodeBase64 && (
+                      <View style={styles.receiptQRBox}>
+                        <Image
+                          source={{ uri: `data:image/png;base64,${selectedHaul.qrCodeBase64}` }}
+                          style={styles.receiptQRImg}
+                        />
                       </View>
                     )}
                   </View>
 
-                  {/* QR Kod — sağ taraf */}
-                  {selectedHaul.qrCodeBase64 && (
-                    <View style={styles.receiptQRBox}>
-                      <Image
-                        source={{ uri: `data:image/png;base64,${selectedHaul.qrCodeBase64}` }}
-                        style={styles.receiptQRImg}
-                      />
-                    </View>
-                  )}
                 </View>
-
               </View>
-            </View>
 
-            {/* Footer butonlar */}
-            <View style={styles.receiptFooterRow}>
-              <TouchableOpacity
-                style={styles.receiptCloseBtnNew}
-                onPress={() => setReceiptVisible(false)}
-              >
-                <Text style={styles.receiptCloseBtnNewText}>Kapat</Text>
-              </TouchableOpacity>
-              {!selectedHaul.isPaid && !selectedHaul.isPrintedReceipt ? (
+              {/* Footer butonlar */}
+              <View style={styles.receiptFooterRow}>
                 <TouchableOpacity
-                  style={styles.receiptApproveBtnNew}
-                  onPress={() => { setReceiptVisible(false); openPaymentConfirm(selectedHaul); }}
+                  style={styles.receiptCloseBtnNew}
+                  onPress={() => setReceiptVisible(false)}
                 >
-                  <Text style={styles.receiptApproveBtnNewText}>Onayla</Text>
+                  <Text style={styles.receiptCloseBtnNewText}>Kapat</Text>
                 </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={styles.receiptPrintBtnNew}
-                  onPress={() => triggerPrint(selectedHaul)}
-                >
-                  <Text style={styles.receiptPrintBtnNewText}>Yazdır</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+                {!selectedHaul.isPaid && !selectedHaul.isPrintedReceipt ? (
+                  <TouchableOpacity
+                    style={styles.receiptApproveBtnNew}
+                    onPress={() => { setReceiptVisible(false); openPaymentConfirm(selectedHaul); }}
+                  >
+                    <Text style={styles.receiptApproveBtnNewText}>Onayla</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.receiptPrintBtnNew}
+                    onPress={() => triggerPrint(selectedHaul)}
+                  >
+                    <Text style={styles.receiptPrintBtnNewText}>Yazdır</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
 
             </View>
           </View>
@@ -1882,7 +1887,7 @@ const styles = StyleSheet.create({
 
   haulNoteText: { fontSize: 12, color: '#555', fontStyle: 'italic', paddingHorizontal: 12, paddingBottom: 6 },
   haulCardBot: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#F0F0F0', paddingTop: 8 },
-  haulDump: { fontSize: 12, color: '#666', flex: 1 },
+  haulDump: { fontSize: 15, color: '#666', flex: 1 },
   eyeBtn: { borderWidth: 1.5, borderColor: '#1565C0', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
   deleteBtn: { borderWidth: 1.5, borderColor: '#E53935', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
   deleteBtnText: { color: '#E53935', fontSize: 12, fontWeight: '700' },

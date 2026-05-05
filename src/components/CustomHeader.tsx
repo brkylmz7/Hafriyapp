@@ -8,7 +8,7 @@ interface HeaderProps {
   subtitle?: string;
 }
 
-export default function CustomHeader({ title = '', subtitle = 'HARFİYAT VE BAHÇE TOPRAĞI TAŞIMA UYGULAMASI' }: HeaderProps) {
+export default function CustomHeader({ title = '', subtitle = 'HAFRİYAT VE YIKINTI ATIĞI TAŞIMA UYGULAMASI' }: HeaderProps) {
   const navigation = useNavigation<any>();
 
   return (

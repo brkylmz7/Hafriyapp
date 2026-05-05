@@ -24,9 +24,9 @@ export default function CustomDrawerContent(props: any) {
       {/* 🟡 HEADER */}
       <View style={styles.header}>
         <Image source={require('../../assets/logoNew.png')} style={styles.logo} />
-        <View style={{marginLeft:'-2%'}}>
+        <View style={{ marginLeft: '-2%' }}>
           <Text style={styles.title}>HAFRİYAPP</Text>
-          <Text style={styles.subtitle}>HARFİYAT VE BAHÇE TOPRAĞI TAŞIMA UYGULAMASI</Text>
+          <Text style={styles.subtitle}>HAFRİYAT VE YIKINTI ATIĞI TAŞIMA UYGULAMASI</Text>
         </View>
       </View>
 

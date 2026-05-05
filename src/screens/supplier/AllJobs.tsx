@@ -30,7 +30,9 @@ const LogoImage = ({ source, style }: { source: any; style: any }) => {
 
 const ActionItem = ({ icon, label, onPress }: { icon: any; label: string; onPress?: () => void; }) => (
   <TouchableOpacity style={styles.actionItem} onPress={onPress} activeOpacity={0.7}>
-    <Image style={{ width: 20, height: 20 }} source={icon} />
+    <View style={styles.actionIconCircle}>
+      <Image style={{ width: 20, height: 20 }} source={icon} />
+    </View>
     <Text style={styles.actionLabel}>{label}</Text>
   </TouchableOpacity>
 );
@@ -722,6 +724,21 @@ const styles = StyleSheet.create({
   actionItem: {
     alignItems: 'center',
   },
+  actionIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: '#FFD500',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.20,
+    shadowRadius: 6,
+    shadowOffset: { width: 1, height: 3 },
+    elevation: 4,
+  },
   actionIcon: {
     fontSize: 18,
   },
@@ -729,7 +746,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     color: '#666',
-    marginTop: 4,
+    marginTop: 3,
   },
 
   /* TABLE */

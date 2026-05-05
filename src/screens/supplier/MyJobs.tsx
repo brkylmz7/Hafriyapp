@@ -357,10 +357,10 @@ export default function MyJobs() {
           )}
 
           <TouchableOpacity
-            style={[styles.actionBtn, item.isActive ? styles.actionBtnDanger : styles.actionBtnSuccess]}
+            style={styles.actionBtn}
             onPress={() => handleToggleActive(item)}
           >
-            <Text style={item.isActive ? styles.actionBtnDangerText : styles.actionBtnSuccessText}>
+            <Text style={styles.actionBtnText}>
               {item.isActive ? 'Yayından Kaldır' : 'Yayına Al'}
             </Text>
           </TouchableOpacity>
@@ -588,7 +588,15 @@ const styles = StyleSheet.create({
     height: 36,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 1,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 2.84,
+
+    elevation: 4,
   },
 
   actionBtnText: {

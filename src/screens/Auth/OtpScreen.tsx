@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, Alert, TouchableOpacity, StyleSheet, Image, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard } from 'react-native';
+import { View, Text, Alert, TouchableOpacity, StyleSheet, Image, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { CodeField, Cursor, useBlurOnFulfill, useClearByFocusCell } from 'react-native-confirmation-code-field';
 import { useAppSelector, useAppDispatch } from '../../hooks';
 import { loginSuccess, setRole, setUser, setCompanyId } from '../../store/slices/authSlice';
@@ -119,44 +119,46 @@ const OtpScreen = () => {
         <Image style={{ width: 25, height: 25 }} source={require('../../../assets/login/left-arrow.png')} />
       </TouchableOpacity>
       {/* 📌 İçerik sabit View içinde → artık reset yok */}
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}>
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-          <View style={styles.container}>
-            <Image style={{ marginBottom: '0%', width: 350, height: 350 }} source={require('../../../assets/logoText.png')} />
-            <Text style={styles.title}>OTP Kodunu Giriniz</Text>
-            <Text style={styles.subtitle}>{phone}</Text>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}>
+        <ScrollView
+          contentContainerStyle={styles.container}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <Image style={{ marginBottom: '0%', width: 280, height: 280 }} source={require('../../../assets/logoText.png')} />
+          <Text style={styles.title}>OTP Kodunu Giriniz</Text>
+          <Text style={styles.subtitle}>{phone}</Text>
 
-            <CodeField
-              ref={ref}
-              {...codeFieldProps}
-              value={otp}
-              onChangeText={setOtp}
-              cellCount={CELL_COUNT}
-              keyboardType="number-pad"
-              textContentType="oneTimeCode"
-              rootStyle={styles.codeFieldRoot}
-              renderCell={({ index, symbol, isFocused }) => (
-                <Text key={index} style={[styles.cell, isFocused && styles.focusCell]} onLayout={getCellOnLayoutHandler(index)}>
-                  {symbol || (isFocused ? <Cursor /> : null)}
-                </Text>
-              )}
-            />
+          <CodeField
+            ref={ref}
+            {...codeFieldProps}
+            value={otp}
+            onChangeText={setOtp}
+            cellCount={CELL_COUNT}
+            keyboardType="number-pad"
+            textContentType="oneTimeCode"
+            rootStyle={styles.codeFieldRoot}
+            renderCell={({ index, symbol, isFocused }) => (
+              <Text key={index} style={[styles.cell, isFocused && styles.focusCell]} onLayout={getCellOnLayoutHandler(index)}>
+                {symbol || (isFocused ? <Cursor /> : null)}
+              </Text>
+            )}
+          />
 
-            <TouchableOpacity style={[styles.verifyButton, otp.length === 6 && styles.verifyButtonActive]} disabled={otp.length !== 6} onPress={onVerify}>
-              <Text style={styles.verifyText}>Doğrula</Text>
-            </TouchableOpacity>
+          <TouchableOpacity style={[styles.verifyButton, otp.length === 6 && styles.verifyButtonActive]} disabled={otp.length !== 6} onPress={onVerify}>
+            <Text style={styles.verifyText}>Doğrula</Text>
+          </TouchableOpacity>
 
-            <View style={{ marginTop: 30 }}>
-              {timer > 0 ? (
-                <Text style={styles.timer}>Kodu tekrar göndermek için: {formatTime(timer)}</Text>
-              ) : (
-                <TouchableOpacity onPress={onResend}>
-                  <Text style={styles.resend}>Tekrar Gönder</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+          <View style={{ marginTop: 30, marginBottom: 40 }}>
+            {timer > 0 ? (
+              <Text style={styles.timer}>Kodu tekrar göndermek için: {formatTime(timer)}</Text>
+            ) : (
+              <TouchableOpacity onPress={onResend}>
+                <Text style={styles.resend}>Tekrar Gönder</Text>
+              </TouchableOpacity>
+            )}
           </View>
-        </TouchableWithoutFeedback>
+        </ScrollView>
       </KeyboardAvoidingView>
     </>
   );
@@ -169,7 +171,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject, // 📌 tam ekran gradient
   },
   container: {
-    flex: 1,
+    flexGrow: 1,
     alignItems: 'center',
     paddingHorizontal: 24,
     paddingTop: 80,
