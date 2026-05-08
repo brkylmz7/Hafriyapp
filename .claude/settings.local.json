@@ -17,7 +17,9 @@
       "Bash(xargs cat)",
       "Bash(dotnet build *)",
       "Bash(bundle exec *)",
-      "Bash(pod install *)"
+      "Bash(pod install *)",
+      "WebFetch(domain:turkish.alibaba.com)",
+      "WebFetch(domain:www.alibaba.com)"
     ]
   }
 }
