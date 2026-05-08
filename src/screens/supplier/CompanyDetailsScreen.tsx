@@ -51,6 +51,14 @@ const CompanyDetailsScreen = () => {
     }
   };
 
+  const normalizePhone = (phone: string): string => {
+    const cleaned = phone.replace(/[\s\-\(\)]/g, '');
+    if (cleaned.startsWith('+90')) return cleaned;
+    if (cleaned.startsWith('90')) return '+' + cleaned;
+    if (cleaned.startsWith('0')) return '+9' + cleaned;
+    return '+90' + cleaned;
+  };
+
   const handleAddUser = async () => {
     if (!authPhone) {
       Alert.alert('Uyarı', 'Telefon numarası zorunludur.');
@@ -59,9 +67,8 @@ const CompanyDetailsScreen = () => {
 
     try {
       setActionLoading(true);
-      // Backend expects phoneNumber, firstName, lastName
       const payload = {
-        phoneNumber: authPhone,
+        phoneNumber: normalizePhone(authPhone),
         firstName: authName,
         lastName: authSurname,
       };

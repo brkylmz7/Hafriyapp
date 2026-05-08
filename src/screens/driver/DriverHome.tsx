@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { View, Text, StyleSheet, Image, TouchableOpacity, TextInput, Platform, ActionSheetIOS, Alert, Modal, ScrollView, ActivityIndicator, SectionList } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 
@@ -10,13 +11,15 @@ const buildLogoUrl = (path?: string | null): string => {
 };
 import { CITIES } from '../../constants/cities';
 import { useAppSelector } from '../../hooks';
-import { getChatGroups, createChatGroup } from '../../services/chatService';
+import { launchImageLibrary } from 'react-native-image-picker';
+import { getChatGroups, createChatGroup, uploadGroupImage } from '../../services/chatService';
 
-export default function SupplierHome() {
+export default function DriverHome() {
   const navigation = useNavigation<any>();
   const [searchText, setSearchText] = useState('');
   const [chatGroups, setChatGroups] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [selectedCity, setSelectedCity] = useState<number | null>(null); // null = Tüm Türkiye
   const token = useAppSelector(state => state.auth.token);
   const user = useAppSelector(state => state.auth.user);
@@ -29,6 +32,21 @@ export default function SupplierHome() {
   const [citySearch, setCitySearch] = useState('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [newGroupImage, setNewGroupImage] = useState<string | null>(null);
+
+  useEffect(() => {
+    AsyncStorage.getItem('pinned_chat_groups').then(val => {
+      if (val) setPinnedIds(JSON.parse(val));
+    });
+  }, []);
+
+  const togglePin = useCallback((id: string) => {
+    setPinnedIds(prev => {
+      const next = prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id];
+      AsyncStorage.setItem('pinned_chat_groups', JSON.stringify(next));
+      return next;
+    });
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -50,6 +68,18 @@ export default function SupplierHome() {
     } finally {
       if (showLoader) setLoading(false);
     }
+  };
+
+  const pickGroupImage = () => {
+    launchImageLibrary(
+      { mediaType: 'photo', includeBase64: true, quality: 0.7, maxWidth: 800, maxHeight: 800 },
+      (response) => {
+        if (response.didCancel || response.errorCode) return;
+        const asset = response.assets?.[0];
+        if (!asset?.base64) return;
+        setNewGroupImage(`data:${asset.type || 'image/jpeg'};base64,${asset.base64}`);
+      },
+    );
   };
 
   const handleCreateGroup = async () => {
@@ -77,13 +107,22 @@ export default function SupplierHome() {
         allowMemberMessages: true,
       };
 
-      await createChatGroup(token, payload);
+      const result = await createChatGroup(token, payload);
+      const createdId = result?.id || result?.data?.id;
+      if (newGroupImage && createdId) {
+        try {
+          await uploadGroupImage(token, createdId, newGroupImage);
+        } catch (imgErr) {
+          console.warn('Logo yüklenemedi:', imgErr);
+        }
+      }
       Alert.alert('Başarılı', 'Grup oluşturuldu!');
       setCreateModalVisible(false);
       setNewGroupName('');
       setNewGroupDesc('');
+      setNewGroupImage(null);
       setSelectedProvinces([]);
-      fetchGroups(); // Listeyi güncelle
+      fetchGroups();
     } catch (error) {
       Alert.alert('Hata', 'Grup oluşturulurken bir hata oluştu.');
       console.error(error);
@@ -141,8 +180,14 @@ export default function SupplierHome() {
       );
     }
 
-    const myGroups = filtered.filter(g => g.isMember);
-    const discoverGroups = filtered.filter(g => !g.isMember);
+    const sortWithPins = (groups: any[]) => {
+      const pinned = groups.filter(g => pinnedIds.includes(g.id));
+      const unpinned = groups.filter(g => !pinnedIds.includes(g.id));
+      return [...pinned, ...unpinned];
+    };
+
+    const myGroups = sortWithPins(filtered.filter(g => g.isMember));
+    const discoverGroups = sortWithPins(filtered.filter(g => !g.isMember));
 
     const result = [];
     if (myGroups.length > 0) {
@@ -153,7 +198,7 @@ export default function SupplierHome() {
     }
 
     return result;
-  }, [searchText, chatGroups]);
+  }, [searchText, chatGroups, pinnedIds]);
 
   const filteredCitiesForSelect = useMemo(() => {
     if (!citySearch.trim()) return CITIES;
@@ -164,6 +209,8 @@ export default function SupplierHome() {
     const previewText = item.isMember
       ? (item.lastMessageSenderName ? `${item.lastMessageSenderName}: ` : '') + (item.lastMessagePreview || 'Henüz mesaj yok')
       : (item.description || item.lastMessagePreview || 'Henüz mesaj yok');
+
+    const isPinned = pinnedIds.includes(item.id);
 
     return (
       <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('CompanyChat', { group: item })} activeOpacity={0.7}>
@@ -180,7 +227,10 @@ export default function SupplierHome() {
         </View>
 
         <View style={styles.content}>
-          <Text style={styles.name}>{item.name}</Text>
+          <View style={styles.nameRow}>
+            <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
+            {isPinned && <Text style={styles.pinnedIndicator}>📌</Text>}
+          </View>
           <Text style={styles.message} numberOfLines={1}>{previewText}</Text>
         </View>
 
@@ -188,14 +238,16 @@ export default function SupplierHome() {
           <Text style={styles.time}>
             {item.lastMessageAt ? new Date(item.lastMessageAt).toLocaleDateString("tr-TR", { day: '2-digit', month: '2-digit' }) : ''}
           </Text>
-          {item.isMember ? (
-            <View style={styles.memberBadge}>
-              <Text style={styles.memberBadgeText}>Üye</Text>
-            </View>
-          ) : (
-            <Text style={styles.memberCountText}>{item.memberCount || 0} üye</Text>
-          )}
+          <Text style={styles.memberCountText}>{item.memberCount || 0} üye</Text>
         </View>
+
+        <TouchableOpacity
+          style={[styles.pinBtn, isPinned && styles.pinBtnActive]}
+          onPress={() => togglePin(item.id)}
+          hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+        >
+          <Text style={styles.pinIcon}>📌</Text>
+        </TouchableOpacity>
       </TouchableOpacity>
     );
   };
@@ -270,12 +322,31 @@ export default function SupplierHome() {
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Grup Oluştur</Text>
-            <TouchableOpacity onPress={() => setCreateModalVisible(false)}>
+            <TouchableOpacity onPress={() => { setCreateModalVisible(false); setNewGroupImage(null); }}>
               <Text style={{ fontSize: 20, fontWeight: 'bold' }}>✕</Text>
             </TouchableOpacity>
           </View>
 
           <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
+            <Text style={styles.label}>Grup Logosu</Text>
+            <View style={styles.logoSection}>
+              <View style={styles.logoCircle}>
+                {newGroupImage ? (
+                  <Image source={{ uri: newGroupImage }} style={styles.logoImg} />
+                ) : (
+                  <Text style={{ fontSize: 36 }}>🏢</Text>
+                )}
+              </View>
+              <TouchableOpacity style={styles.pickImageBtn} onPress={pickGroupImage}>
+                <Text style={styles.pickImageText}>⊙ Resim Seç</Text>
+              </TouchableOpacity>
+              {newGroupImage && (
+                <TouchableOpacity style={styles.removeImageBtn} onPress={() => setNewGroupImage(null)}>
+                  <Text style={styles.removeImageText}>✕ Kaldır</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
             <Text style={styles.label}>Grup Adı *</Text>
             <TextInput
               style={styles.input}
@@ -372,7 +443,7 @@ export default function SupplierHome() {
               {creating ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnText}>✓ Grubu Oluştur</Text>}
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.cancelBtn} onPress={() => setCreateModalVisible(false)} disabled={creating}>
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => { setCreateModalVisible(false); setNewGroupImage(null); }} disabled={creating}>
               <Text style={styles.cancelBtnText}>← Vazgeç</Text>
             </TouchableOpacity>
 
@@ -533,6 +604,30 @@ const styles = StyleSheet.create({
     color: '#888',
     fontSize: 12,
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 2,
+  },
+  pinnedIndicator: {
+    fontSize: 11,
+  },
+  pinBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginLeft: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F2F2F2',
+  },
+  pinBtnActive: {
+    backgroundColor: '#FFF3C4',
+  },
+  pinIcon: {
+    fontSize: 15,
+  },
   divider: {
     height: 1,
     backgroundColor: '#eee',
@@ -685,6 +780,51 @@ const styles = StyleSheet.create({
     color: '#555',
     fontWeight: '600',
     fontSize: 16,
-  }
+  },
+  logoSection: {
+    alignItems: 'center',
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  logoCircle: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: '#F0F0F0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: '#ddd',
+  },
+  logoImg: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+  },
+  pickImageBtn: {
+    paddingHorizontal: 22,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: '#FFD500',
+  },
+  pickImageText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  removeImageBtn: {
+    marginTop: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#eee',
+  },
+  removeImageText: {
+    fontSize: 13,
+    color: '#C62828',
+    fontWeight: '600',
+  },
 });
 

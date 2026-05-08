@@ -1104,29 +1104,27 @@ export default function JobDetails() {
                         <TouchableOpacity
                           key={idx}
                           style={[styles.offerItem, selectedOfferIdx === idx && styles.offerItemSelected]}
-                          onPress={() => setSelectedOfferIdx(idx)}
+                          onPress={() => { setSelectedOfferIdx(idx); Keyboard.dismiss(); }}
                         >
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.offerName}>{offer.name}</Text>
-                            <View style={{ flexDirection: 'row', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-                              {isKum && !!offer.material && (
-                                <View style={styles.materialBadge}>
-                                  <Text style={styles.materialBadgeText}>{offer.material}</Text>
-                                </View>
-                              )}
-                              {offer.cash > 0 && (
-                                <View style={styles.offerCashBadge}>
-                                  <Text style={styles.offerCashText}>
-                                    {offer.cash.toLocaleString('tr-TR')} {isKum ? '₺/ton' : '₺'}
-                                  </Text>
-                                </View>
-                              )}
-                              {!isKum && offer.fuel > 0 && (
-                                <View style={styles.offerFuelBadge}>
-                                  <Text style={styles.offerFuelText}>{offer.fuel.toLocaleString('tr-TR')} Lt</Text>
-                                </View>
-                              )}
-                            </View>
+                          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <Text style={[styles.offerName, { flex: 1 }]} numberOfLines={1}>{offer.name}</Text>
+                            {isKum && !!offer.material && (
+                              <View style={styles.materialBadge}>
+                                <Text style={styles.materialBadgeText}>{offer.material}</Text>
+                              </View>
+                            )}
+                            {offer.cash > 0 && (
+                              <View style={styles.offerCashBadge}>
+                                <Text style={styles.offerCashText}>
+                                  {offer.cash.toLocaleString('tr-TR')} {isKum ? '₺/ton' : '₺'}
+                                </Text>
+                              </View>
+                            )}
+                            {!isKum && offer.fuel > 0 && (
+                              <View style={styles.offerFuelBadge}>
+                                <Text style={styles.offerFuelText}>{offer.fuel.toLocaleString('tr-TR')} Lt</Text>
+                              </View>
+                            )}
                           </View>
                           <View style={[styles.radioCircle, selectedOfferIdx === idx && styles.radioCircleSelected]}>
                             {selectedOfferIdx === idx && <View style={styles.radioDot} />}

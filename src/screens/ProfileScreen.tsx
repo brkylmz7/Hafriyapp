@@ -39,6 +39,7 @@ const ProfileScreen = () => {
   const [companyAddress, setCompanyAddress] = useState('');
   const [companyTaxNumber, setCompanyTaxNumber] = useState('');
   const [companyLogoUri, setCompanyLogoUri] = useState<string | null>(null);
+  const [companyUserRole, setCompanyUserRole] = useState<number>(0); // 0=Owner, 1=Yetkili(Admin)
 
   const [authName, setAuthName] = useState('');
   const [authPhone, setAuthPhone] = useState('');
@@ -64,6 +65,7 @@ const ProfileScreen = () => {
 
           if (myCompany && myCompany.id) {
             setCompanyId(myCompany.id);
+            setCompanyUserRole(myCompany.userRole ?? 0);
 
             // Fetch detail to get Logo, Address, TaxNumber
             const detailRes = await getCompanyById(myCompany.id, token);
@@ -288,25 +290,27 @@ const ProfileScreen = () => {
         </View>
       )}
 
-      {/* 🛑 TEHLİKELİ BÖLGE */}
-      <View style={[styles.card, styles.dangerCard]}>
-        <Text style={styles.dangerTitle}>Hesabımı Sil</Text>
-        {isDriver ? (
-          <>
-            <Text style={styles.dangerText}>Hesabınız pasife alınacak, şoför atamalarınız ve firma üyelikleriniz kaldırılacaktır.</Text>
-            <TouchableOpacity style={styles.dangerButtonOutline} onPress={handleDeactivate}>
-              {actionLoading ? <ActivityIndicator color="red" /> : <Text style={styles.dangerButtonOutlineText}>🗑️ Hesabımı Pasife Al</Text>}
-            </TouchableOpacity>
-          </>
-        ) : (
-          <>
-            <Text style={styles.dangerText}>Hesabınızı sildiğinizde tüm verileriniz kalıcı olarak silinecektir. Bu işlem geri alınamaz.</Text>
-            <TouchableOpacity style={styles.dangerButtonOutline} onPress={handleDelete}>
-              {actionLoading ? <ActivityIndicator color="red" /> : <Text style={styles.dangerButtonOutlineText}>🗑️ Hesabımı Sil</Text>}
-            </TouchableOpacity>
-          </>
-        )}
-      </View>
+      {/* 🛑 TEHLİKELİ BÖLGE — Yetkili (role=1) kullanıcılara gösterilmez */}
+      {companyUserRole !== 1 && (
+        <View style={[styles.card, styles.dangerCard]}>
+          <Text style={styles.dangerTitle}>Hesabımı Sil</Text>
+          {isDriver ? (
+            <>
+              <Text style={styles.dangerText}>Hesabınız pasife alınacak, şoför atamalarınız ve firma üyelikleriniz kaldırılacaktır.</Text>
+              <TouchableOpacity style={styles.dangerButtonOutline} onPress={handleDeactivate}>
+                {actionLoading ? <ActivityIndicator color="red" /> : <Text style={styles.dangerButtonOutlineText}>🗑️ Hesabımı Pasife Al</Text>}
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <Text style={styles.dangerText}>Hesabınızı sildiğinizde tüm verileriniz kalıcı olarak silinecektir. Bu işlem geri alınamaz.</Text>
+              <TouchableOpacity style={styles.dangerButtonOutline} onPress={handleDelete}>
+                {actionLoading ? <ActivityIndicator color="red" /> : <Text style={styles.dangerButtonOutlineText}>🗑️ Hesabımı Sil</Text>}
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      )}
     </ScrollView>
   );
 };

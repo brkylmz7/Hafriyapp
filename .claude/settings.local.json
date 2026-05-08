@@ -12,7 +12,12 @@
       "Bash(xargs rm *)",
       "Bash(dotnet restore *)",
       "Bash(npm install *)",
-      "Bash(grep -E \"\\\\.\\(tsx?|jsx?\\)$\")"
+      "Bash(grep -E \"\\\\.\\(tsx?|jsx?\\)$\")",
+      "Bash(xargs ls)",
+      "Bash(xargs cat)",
+      "Bash(dotnet build *)",
+      "Bash(bundle exec *)",
+      "Bash(pod install *)"
     ]
   }
 }

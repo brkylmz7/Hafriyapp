@@ -1,4 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
+import TimePickerInput from './TimePickerInput';
+import DatePickerInput from './DatePickerInput';
 import { createJobSite, updateJobSite, getHaulsVisibility } from '../services/jobSiteNewService';
 import {
   View,
@@ -97,6 +99,15 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
     { loadLocation: '', unloadLocation: '', cashPerTon: '', material: '' },
   ]);
 
+  const todayDDMMYYYY = (): string => {
+    const now = new Date();
+    const d = String(now.getDate()).padStart(2, '0');
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    return `${d}.${m}.${now.getFullYear()}`;
+  };
+
+  const [sandDate, setSandDate] = useState<string>(todayDDMMYYYY());
+
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [fuelStock, setFuelStock] = useState('');
@@ -156,8 +167,12 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
         const newRoutes: Route[] = [];
         if (initialJob.extraOffersJson) {
           try {
-            const extras = JSON.parse(initialJob.extraOffersJson);
-            extras.forEach((e: any) => {
+            const parsed = JSON.parse(initialJob.extraOffersJson);
+            // Yeni format: { date, routes: [...] }  |  Eski format: [...]
+            const routeArray = Array.isArray(parsed) ? parsed : (parsed.routes ?? []);
+            const parsedDate: string | undefined = !Array.isArray(parsed) ? parsed.date : undefined;
+            if (parsedDate) setSandDate(parsedDate);
+            routeArray.forEach((e: any) => {
               newRoutes.push({
                 loadLocation: e.loading || e.Loading || '',
                 unloadLocation: e.unloading || e.Unloading || '',
@@ -322,7 +337,7 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
     return true; // Always allow save (format may change)
   }, [
     siteName, provinceCode, districtName, locationUrl, description, signDescription,
-    phones, fuelStock, startTime, endTime, jobCategory, offers, routes, initialJob,
+    phones, fuelStock, startTime, endTime, jobCategory, offers, routes, sandDate, initialJob,
   ]);
 
   /* ================= SAVE ================= */
@@ -341,15 +356,16 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
 
       if (isKum) {
         if (routes.length > 0) {
-          extraOffersJson = JSON.stringify(
-            routes.map((r, idx) => ({
+          extraOffersJson = JSON.stringify({
+            date: sandDate,
+            routes: routes.map((r, idx) => ({
               offerNo: idx + 1,
               loading: r.loadLocation,
               unloading: r.unloadLocation,
               cash: toDecimalOrNull(r.cashPerTon) ?? 0,
               material: r.material,
             })),
-          );
+          });
         }
       } else {
         // Hafriyat: unified JSON format (all offers with isVisible)
@@ -500,6 +516,15 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
             value={siteName}
             onChangeText={setSiteName}
           />
+
+          {/* KUM/MICIR → İŞ TARİHİ (İş Adı'nın hemen altı) */}
+          {jobCategory === 'KUM_MICIR' && (
+            <DatePickerInput
+              label="İş Tarihi"
+              value={sandDate}
+              onChange={setSandDate}
+            />
+          )}
 
           {/* HAFRİYAT → TEKLİFLER */}
           {jobCategory === 'HAFRIYAT' && (
@@ -705,16 +730,16 @@ export default function NewJobModal({ onClose, initialJob }: NewJobModalProps) {
               <View style={styles.toggleDivider} />
               <Text style={styles.subSectionTitle}>Çalışma Saatleri</Text>
               <View style={styles.row}>
-                <AppInput
-                  placeholder="Başlangıç (09:00)"
+                <TimePickerInput
+                  placeholder="Başlangıç(09:00)"
                   value={startTime}
-                  onChangeText={setStartTime}
+                  onChange={setStartTime}
                   flex
                 />
-                <AppInput
+                <TimePickerInput
                   placeholder="Bitiş (18:00)"
                   value={endTime}
-                  onChangeText={setEndTime}
+                  onChange={setEndTime}
                   flex
                 />
               </View>
@@ -992,7 +1017,7 @@ const styles = StyleSheet.create({
 
   delete: { color: '#E53935', fontSize: 13, fontWeight: '700' },
 
-  hint: { fontSize: 12, color: '#999', marginTop: -6, marginBottom: 6 },
+  hint: { fontSize: 12, color: '#999', marginTop: 3, marginBottom: 6 },
 
   routeInfo: { fontSize: 12, color: '#777', marginBottom: 10 },
 
